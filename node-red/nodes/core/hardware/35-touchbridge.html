@@ -1,0 +1,423 @@
+<!--
+
+  touchbridge.html
+
+  This file is part of Touchbridge
+
+  Copyright 2015 James L Macfarlane
+
+  (Based on IBM Raspberry Pi GPIO node.)
+
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+-->
+
+<script type="text/x-red" data-template-name="TBG-INPUT">
+    <div class="form-row">
+        <label for="node-input-card"><i class="fa fa-circle"></i> Card</label>
+        <select type="text" id="node-input-card" style="width: 250px;">
+            <option value='' disabled selected style='display:none;'>select card</option>
+         </select>
+    </div>
+    <div class="form-row">
+        <label for="node-input-pin"><i class="fa fa-circle"></i> Pin</label>
+        <select type="text" id="node-input-pin" style="width: 250px;">
+            <option value='' disabled selected style='display:none;'>select pin</option>
+            <option value="1">1</option>
+            <option value="2">2</option>
+            <option value="3">3</option>
+            <option value="4">4</option>
+            <option value="5">5</option>
+            <option value="6">6</option>
+            <option value="7">7</option>
+            <option value="8">8</option>
+         </select>
+    </div>
+    <div class="form-row">
+        <label for="node-input-intype"><i class="fa fa-level-up"></i> Resistor ?</label>
+        <select type="text" id="node-input-intype" style="width: 150px;">
+        <option value="tri">none</option>
+        <option value="up">pullup</option>
+        <option value="down">pulldown</option>
+        </select>
+    </div>
+    <br/>
+    <div class="form-row">
+        <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+        <input type="text" id="node-input-name" placeholder="Name">
+    </div>
+    <div class="form-tips">Tip: Only Digital Input is supported - input must be 0 or 1.</div>
+</script>
+
+<script type="text/x-red" data-help-name="TBG-INPUT">
+    <p>Touchbridge Input node.</p>
+    <p>Generates a <b>msg.payload</b> with either a 0 or 1 depending on the state of the input pin.</p>
+    <p>The <b>msg.topic</b> is set to <i>tbg/{the pin number}</i></p>
+    </script>
+
+<script type="text/javascript">
+    RED.nodes.registerType('TBG-INPUT',{
+        category: 'Touchbridge',
+        color:"#c6dbef",
+        defaults: {
+            name: { value:"" },
+            pin: { value:"",required:true,validate:RED.validators.number() },
+            card: { value:"",required:true },
+            intype: { value: "in" },
+        },
+        inputs:0,
+        outputs:1,
+        icon: "touchbridge_node_icon.png",
+        label: function() {
+            return this.name||"Card "+this.card+", Pin: "+this.pin ;
+        },
+        labelStyle: function() {
+            return this.name?"node_label_italic":"";
+        },
+        oneditprepare: function() {
+            var pinnow = this.pin;
+            var cardnow = this.card;
+            var boards = [];
+            var pinsInUse = {};
+            $.getJSON('tbg-boards/'+this.id,function(data) {
+                boards = data;
+                for (var key in data) {
+                    var brd = data[key];
+                    if (brd.product.id == 'TBG-INPUT') {
+                        $('#node-input-card').append($("<option></option>").attr("value",brd.id).text(brd.id));
+                    }
+                }
+            });
+
+            $.getJSON('rpi-pins/'+this.id,function(data) {
+                pinsInUse = data || {};
+            });
+
+            $("#node-input-pin").change(function() {
+                var pinnew = $("#node-input-pin").val();
+                if ((pinnew) && (pinnew !== pinnow)) {
+                    if (pinsInUse.hasOwnProperty(pinnew)) {
+                        RED.notify("Pin "+pinnew+" already in use.","info");
+                    }
+                    pinnow = pinnew;
+                }
+            });
+            $("#node-input-card").change(function() {
+                var cardnew = $("#node-input-card").val();
+                if ((cardnew) && (cardnew !== cardnow)) {
+                    cardnow = cardnew;
+                }
+            });
+
+            $("#node-input-intype").change(function() {
+                var newtype = $("#node-input-intype option:selected").val();
+                if ((pinsInUse.hasOwnProperty(pinnow)) && (pinsInUse[pinnow] !== newtype)) {
+                    RED.notify("Pin "+pinnow+" already set as "+pinsInUse[pinnow],"error");
+                }
+            });
+        }
+    });
+</script>
+
+<script type="text/x-red" data-template-name="TBG-HSO">
+    <div class="form-row">
+        <label for="node-input-card"><i class="fa fa-circle"></i> Card</label>
+        <select type="text" id="node-input-card" style="width: 250px;">
+            <option value='' disabled selected style='display:none;'>select card</option>
+         </select>
+    </div>
+    <div class="form-row">
+        <label for="node-input-pin"><i class="fa fa-circle"></i> Pin</label>
+        <select type="text" id="node-input-pin" style="width: 250px;">
+            <option value='' disabled selected style='display:none;'>select pin</option>
+            <option value="1">1</option>
+            <option value="2">2</option>
+            <option value="3">3</option>
+            <option value="4">4</option>
+            <option value="5">5</option>
+            <option value="6">6</option>
+            <option value="7">7</option>
+            <option value="8">8</option>
+         </select>
+    </div>
+    <div class="form-row" id="node-set-tick">
+        <label>&nbsp;</label>
+        <input type="checkbox" id="node-input-set" style="display: inline-block; width: auto; vertical-align: top;">
+        <label for="node-input-set" style="width: 70%;">Initialise pin state ?</label>
+    </div>
+    <div class="form-row" id="node-set-state">
+        <label for="node-input-initial_level">&nbsp;</label>
+        <select id="node-input-initial_level" style="width: 250px;">
+            <option value="0">initial level of pin - low (0)</option>
+            <option value="1">initial level of pin - high (1)</option>
+        </select>
+    </div>
+    <br/>
+    <div class="form-row">
+        <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+        <input type="text" id="node-input-name" placeholder="Name">
+    </div>
+    <div class="form-tips" id="dig-tip"><b>Tip</b>: For digital output - input must be 0 or 1.</div>
+</script>
+
+<script type="text/x-red" data-help-name="TBG-HSO">
+    <p>Touchrbidge HSO output node.</p>
+    <p>Expects a <b>msg.payload</b> with either a 0 or 1 (or true or false).</p>
+    <p>Will set the selected physical pin high or low depending on the value passed in.</p>
+    <p>The initial value of the pin at deploy time can also be set to 0 or 1.</p>
+</script>
+
+<script type="text/javascript">
+    RED.nodes.registerType('TBG-HSO',{
+        category: 'Touchbridge',
+        color:"#c6dbef",
+        defaults: {
+            name: { value:"" },
+            pin: { value:"",required:true,validate:RED.validators.number() },
+            card: { value:"",required:true },
+            set: { value:"" },
+            initial_level: { value:"0" },
+            out: { value:"out" }
+        },
+        inputs:1,
+        outputs:0,
+        icon: "touchbridge_node_icon.png",
+        align: "right",
+        label: function() {
+            return this.name||"Card "+this.card+", Pin: "+this.pin ;
+        },
+        labelStyle: function() {
+            return this.name?"node_label_italic":"";
+        },
+        oneditprepare: function() {
+            var pinnow = this.pin;
+            var cardnow = this.card;
+            var pinsInUse = {};
+            if (!$("#node-input-out").val()) { $("#node-input-out").val("out"); }
+            $.getJSON('tbg-boards/'+this.id,function(data) {
+                for (var key in data) {
+                    var brd = data[key];
+                    if (brd.product.id == 'TBG-HSO') {
+                        $('#node-input-card').append($("<option></option>").attr("value",brd.id).text(brd.id));
+                    }
+                }
+            });
+
+            $.getJSON('rpi-pins/'+this.id,function(data) {
+                pinsInUse = data || {};
+            });
+
+            $("#node-input-pin").change(function() {
+                var pinnew = $("#node-input-pin").val();
+                if ((pinnew) && (pinnew !== pinnow)) {
+                    if (pinsInUse.hasOwnProperty(pinnew)) {
+                        RED.notify("Pin "+pinnew+" already in use.","info");
+                    }
+                    pinnow = pinnew;
+                }
+            });
+            $("#node-input-card").change(function() {
+                var cardnew = $("#node-input-card").val();
+                if ((cardnew) && (cardnew !== cardnow)) {
+                    cardnow = cardnew;
+                }
+            });
+
+            $("#node-input-out").change(function() {
+                var newtype = $("#node-input-out option:selected").val();
+                if ((pinsInUse.hasOwnProperty(pinnow)) && (pinsInUse[pinnow] !== newtype)) {
+                    RED.notify("Pin "+pinnow+" already set as "+pinsInUse[pinnow],"error");
+                }
+            });
+
+            var hidestate = function () {
+                if ($("#node-input-out").val() === "pwm") {
+                    $('#node-set-tick').hide();
+                    $('#node-set-state').hide();
+                    $('#node-input-set').prop('checked', false);
+                    $("#dig-tip").hide();
+                    $("#pwm-tip").show();
+                }
+                else {
+                    $('#node-set-tick').show();
+                    $("#dig-tip").show();
+                    $("#pwm-tip").hide();
+                }
+            };
+            $("#node-input-out").change(function () { hidestate(); });
+            hidestate();
+
+            var setstate = function () {
+                if ($('#node-input-set').is(":checked")) {
+                    $("#node-set-state").show();
+                } else {
+                    $("#node-set-state").hide();
+                }
+            };
+            $("#node-input-set").change(function () { setstate(); });
+            setstate();
+        }
+    });
+</script>
+
+<script type="text/x-red" data-template-name="TBG-HCO">
+    <div class="form-row">
+        <label for="node-input-card"><i class="fa fa-circle"></i> Card</label>
+        <select type="text" id="node-input-card" style="width: 250px;">
+            <option value='' disabled selected style='display:none;'>select card</option>
+         </select>
+    </div>
+    <div class="form-row">
+        <label for="node-input-pin"><i class="fa fa-circle"></i> Pin</label>
+        <select type="text" id="node-input-pin" style="width: 250px;">
+            <option value='' disabled selected style='display:none;'>select pin</option>
+            <option value="1">1</option>
+            <option value="2">2</option>
+            <option value="3">3</option>
+            <option value="4">4</option>
+            <option value="5">5</option>
+            <option value="6">6</option>
+            <option value="7">7</option>
+            <option value="8">8</option>
+         </select>
+    </div>
+    <div class="form-row" id="node-set-tick">
+        <label>&nbsp;</label>
+        <input type="checkbox" id="node-input-set" style="display: inline-block; width: auto; vertical-align: top;">
+        <label for="node-input-set" style="width: 70%;">Initialise pin state ?</label>
+    </div>
+    <div class="form-row" id="node-set-state">
+        <label for="node-input-initial_enable">&nbsp;</label>
+        <select id="node-input-initial_enable" style="width: 250px;">
+            <option value="0">Initial state of channel - disabled (0)</option>
+            <option value="1">Initial state of channel - enabled (1)</option>
+        </select>
+    </div>
+    <div class="form-row" id="node-set-state">
+        <label for="node-input-initial_pwm">Initial PWM value</label>
+        <input id="node-input-initial_pwm" style="width: 250px;" type="text">
+        </input>
+    </div>
+    <br/>
+    <div class="form-row">
+        <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+        <input type="text" id="node-input-name" placeholder="Name">
+    </div>
+    <div class="form-tips" id="dig-tip"><b>Tip</b>: For digital output - input must be 0 or 1.</div>
+    <div class="form-tips" id="pwm-tip"><b>Tip</b>: For PWM output - input must be between 0.0 to 1.0.</div>
+</script>
+
+<script type="text/x-red" data-help-name="TBG-HCO">
+    <p>Touchrbidge HCO output node.</p>
+    <p>Has two behaviors depending on the message topic:</p>
+    <p>If <b>msg.topic</b> is <b>pwm</b> the node expects a <b>msg.payload</b> with a decimal number between 0.0 and 1.0
+       and this will set the PWM output value for the selected channel.</p>
+    <p>Any other topic will cause <b>msg.payload</b> to be interpreted as a logic level (either a 0 or 1, or true or false)
+       and this will enable (1) or disable (0) the channel without changing the PWM value. When the channel is 
+       enabled, it is switched between 0V and +Ve at a frequency of 25KHz and a duty factor set by the PWM value.
+       When disabled, the output is floating.</p>
+    <p>The initial enable state at deploy time can also be set to 0 or 1.</p>
+    <p>The initial PWM value can also be set.</p>
+</script>
+
+<script type="text/javascript">
+    RED.nodes.registerType('TBG-HCO',{
+        category: 'Touchbridge',
+        color:"#c6dbef",
+        defaults: {
+            name: { value:"" },
+            card: { value:"",required:true },
+            pin: { value:"",required:true,validate:RED.validators.number() },
+            initial_enable: { value:"0" },
+            initial_pwm: { value:"0.0",validate:RED.validators.number() },
+        },
+        inputs:1,
+        outputs:0,
+        icon: "touchbridge_node_icon.png",
+        align: "right",
+        label: function() {
+            return this.name||"Card "+this.card+", Pin: "+this.pin ;
+        },
+        labelStyle: function() {
+            return this.name?"node_label_italic":"";
+        },
+        oneditprepare: function() {
+            var pinnow = this.pin;
+            var cardnow = this.card;
+            var pinsInUse = {};
+            if (!$("#node-input-outtype").val()) { $("#node-input-outtype").val("enable"); }
+
+            $.getJSON('tbg-boards/'+this.id,function(data) {
+                for (var key in data) {
+                    var brd = data[key];
+                    if (brd.product.id == 'TBG-HCO') {
+                        $('#node-input-card').append($("<option></option>").attr("value",brd.id).text(brd.id));
+                    }
+                }
+            });
+
+            $.getJSON('rpi-pins/'+this.id,function(data) {
+                pinsInUse = data || {};
+            });
+
+            $("#node-input-pin").change(function() {
+                var pinnew = $("#node-input-pin").val();
+                if ((pinnew) && (pinnew !== pinnow)) {
+                    if (pinsInUse.hasOwnProperty(pinnew)) {
+                        RED.notify("Pin "+pinnew+" already in use.","info");
+                    }
+                    pinnow = pinnew;
+                }
+            });
+            $("#node-input-card").change(function() {
+                var cardnew = $("#node-input-card").val();
+                if ((cardnew) && (cardnew !== cardnow)) {
+                    cardnow = cardnew;
+                }
+            });
+
+            $("#node-input-outtype").change(function() {
+                var newtype = $("#node-input-outtype option:selected").val();
+                if ((pinsInUse.hasOwnProperty(pinnow)) && (pinsInUse[pinnow] !== newtype)) {
+                    RED.notify("Pin "+pinnow+" already set as "+pinsInUse[pinnow],"error");
+                }
+            });
+
+            var hidestate = function () {
+                if ($("#node-input-outtype").val() === "pwm") {
+                    $('#node-set-tick').hide();
+                    $('#node-set-state').hide();
+                    $('#node-input-set').prop('checked', false);
+                    $("#dig-tip").hide();
+                    $("#pwm-tip").show();
+                }
+                else {
+                    $('#node-set-tick').show();
+                    $("#dig-tip").show();
+                    $("#pwm-tip").hide();
+                }
+            };
+            $("#node-input-outtype").change(function () { hidestate(); });
+            hidestate();
+
+            var setstate = function () {
+                if ($('#node-input-set').is(":checked")) {
+                    $("#node-set-state").show();
+                } else {
+                    $("#node-set-state").hide();
+                }
+            };
+            $("#node-input-set").change(function () { setstate(); });
+            setstate();
+        }
+    });
+</script>

@@ -1,0 +1,409 @@
+\documentclass[12pt]{article}
+\usepackage{booktabs} % Better horizontal rules in tables
+%\usepackage{ebgaramond}
+\usepackage{fbb}
+\usepackage{float}
+\usepackage{tikz-timing}
+\usepackage{bytefield}
+\pagestyle{empty}
+
+% Make a command to show an overbar for logic inversion
+\newcommand{\inv}[1]{$\overline{\mbox{#1}}$}
+\newcommand{\outdir}[0]{$\rightarrow$}
+\newcommand{\indir}[0]{$\leftarrow$}
+\newcommand{\bidir}[0]{$\leftrightarrow$}
+
+\begin{document}
+
+\title{Touchbridge Specification}
+\author{James Macfarlane\\james@ael.co.uk}
+\maketitle
+
+\section{Touchbridge Interface Specification for Raspberry Pi HAT}
+
+\begin{table}[!htb]
+    \centering
+
+    \begin{tabular}[pos]{l l l l l}
+    \toprule
+        Function        & Pi 2/B+ Pin  & Direction & STM32F103 Pin (LQFP48) & (LQFP64) \\
+    \midrule
+        D0              & GPIO16  & \bidir      & PA0  & PC0  \\
+        D1              & GPIO17  & \bidir      & PA1  & PC1  \\
+        D2              & GPIO18  & \bidir      & PA2  & PC2  \\
+        D3              & GPIO19  & \bidir      & PA3  & PC3  \\
+        D4              & GPIO20  & \bidir      & PA4  & PC4  \\
+        D5              & GPIO21  & \bidir      & PA5  & PC5  \\
+        D6              & GPIO22  & \bidir      & PA6  & PC6  \\
+        D7              & GPIO23  & \bidir      & PA7  & PC7  \\
+        ADSEL           & GPIO24  & \outdir     & PA8  & PC8  \\
+        WRSEL           & GPIO25  & \outdir     & PA9  & PC9  \\
+        \inv{EN}        & GPIO26  & \outdir     & PA10 & PC10 \\
+        \inv{ACK}       & GPIO27  & \indir      & PA11 & PC11 \\
+        \inv{INT}       & GPIO12  & \indir      & PA12 & PC12 \\
+        Spare           & GPIO13  &             &      & PC13 \\
+    \bottomrule
+    \end{tabular}
+
+    \caption{Pin assignments for Raspberry Pi Touchbridge HAT}\label{tab:a}
+\end{table}
+
+\begin{figure}[H]
+    \centering
+
+    \begin{tikztimingtable}[ %
+        timing/dslope=0.1,
+        timing/.style={x=6ex,y=2ex},
+        x=5ex,
+        timing/rowdist=3ex,
+        timing/name/.style={font=\rmfamily\scriptsize}
+    ]
+        D[7..0]         & D {} 6D{Data From Pi} {} D\\
+        ADSEL           & D {} 6D{Data From Pi} {} D\\
+        WRSEL           & D {} 6H {} D\\
+        \inv{EN}        & 2H 3L  3H\\
+        \inv{ACK}       & 4H 2L  2H\\
+        \\
+        STM32 Read Event & 3L G  5L\\
+    \extracode
+      \fulltablegrid
+    \end{tikztimingtable}
+
+    \caption{Write Timings}\label{tab:a}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+
+    \begin{tikztimingtable}[ %
+        timing/dslope=0.1,
+        timing/.style={x=6ex,y=2ex},
+        x=5ex,
+        timing/rowdist=3ex,
+        timing/name/.style={font=\rmfamily\scriptsize}
+     ]
+        D[7..0]         & D {} 2Z {} 4D{Data from STM32} {} 2Z {} 1D\\
+        ADSEL           & 1D {} 8D{Data from Pi} {} 1D\\
+        WRSEL           & 1D {} 8L {} 1D\\
+        \inv{EN}        & 2H 4L  4H\\
+        \inv{ACK}       & 4H 4L  2H\\
+        \\
+        Pi Read Event   & 5L G  5L\\
+    \extracode
+      \fulltablegrid
+    \end{tikztimingtable}
+
+    \caption{Read Timings}\label{tab:a}
+\end{figure}
+
+\iffalse
+\begin{figure}[H]
+    \centering
+    \begin{bytefield}[endianness=big,bitwidth=2.1em]{9}
+        \bitbox[]{1}{FS} & \bitbox[]{8}{Data Bus} \\
+        \bitheader{0,3,4,7} \\
+        \bitbox{1}{1} & \bitbox{4}{Type} & \bitbox{4}{Length} \\
+        \bitbox{1}{0} & \bitbox{8}{Payload Byte~0} \\
+        \bitbox{1}{0} & \bitbox{8}{Payload Byte~1} \\
+        \wordbox[]{1}{$\vdots$} \\[1ex]
+        \bitbox{1}{0} & \bitbox{8}{Payload Byte~$N$}
+    \end{bytefield}
+    \caption{Frame Protocol}
+\end{figure}
+\fi
+
+\section{Touchbridge Protocol}
+
+\subsection{Introduction}
+
+Touchbridge is physically implemented using a CAN (Controller Area Network)
+bus. CAN bus was originally designed to for use in automobiles to allow various
+electronic control units to talk to each other but it has many other
+applications. The CAN protocol (and hardware which implements it) provides a
+nice method of dealing with message collisions (when two devices try to send at
+the same time.) This means that it is a fairly reliable way of getting messages
+from one device to another on a bus. However, the CAN protocol doesn't dictate
+how the messages are to be used. This means that another protocol layer is
+usually placed on top of CAN in order to make it useful for a particular
+application. Touchbridge adds a light-weight protocol layer on top of CAN bus
+which gives it a lot of useful extra capabilities.
+
+During the design of the Touchbridge system, existing CAN wrapper layers where
+considered but all where found to be some combination of too
+application-specific, too proprietary or too combersome to implement (at least
+without paying \$\$\$\$ for a commerical SDK.) Hence the need for something
+new: the Toucbridge Protocol. Although the Touchbridge Controller API
+(described eslewhere) hides the low-level stuff from the end-user, one of the
+aims of the Touchbridge Protocol is that it be simple enough that most of
+functionality of the Touchbridge peripherals is available to a controller which
+can send and receive simple CAN bus messages one at a time, without needing to
+write any kind of protocol stack. In other words, most of the hard stuff is
+done on the peripherals, not the controller.
+
+
+\subsubsection{CAN Bus Messages}
+
+This document is not supposed to be an exhaustive primer on CAN bus - there are
+better sources available elsewhere. The following information is presented as a
+very brief introduction or aide memoire but it should be sufficient to
+understand the internals of Touchbridge. 
+
+A CAN message contains three main parts: an ID field, a length field and a data
+field. The data field can be up to 8 bytes long. The length field says how many
+bytes are present in the payload. The ID field is commonly used to say how the
+data field should be interpreted or to do addressing of one form or another.
+The CAN protocol doesn't place any constraints on how the ID field should be
+used. This is left up to the application. CAN supports two different lengths of
+ID field, Standard (11 bits long) and Extended (29 bits long.) Touchbridge uses
+the Extended form. The CAN message also has an RTR bit (not used in
+Touchbridge, always set to zero) and an IDE bit which is set if the extended ID
+format is in use (always set to one in Touchbridge.)
+
+\subsubsection{Nodes}
+
+
+In Touchbridge, a node means a physical device attached to the bus and has its
+own unique address. The Touchbridge node address is represented by a 6-bit
+number. This means that 64 addresses are possible. However, address 0 is
+reserved and address 63 is the broadcast address (used for sending a messsage
+to all nodes at once) which leaves 62 addresses free.  This is the same as the
+maximum recommended number of nodes on a CAN bus segment due to electrical
+limitations. Because many more than 62 physical touchbridge devices can exist
+in the world, a method is needed of assigning the limited number of node
+address to the devices present on a particular bus. Touchbridge has two methods
+of doing this: Dynamic Assignment and Static Assginment. They are
+covered in the section called "Address Assignment."
+
+\subsubsection{Controllers and Peripherals}
+
+In the way Touchbridge is commonly used, nodes can be thought of either as
+controllers (something running user's code, e.g. a Raspberry Pi with a
+Touchbridge "HAT") or peripherals (something which does useful work, e.g.
+controls a motor or reads data from a sensor.) There is usually only one
+controller node per Touchbridge bus, though it is possible to have multiple
+controllers (e.g. for redundancy.)
+
+Because Touchbridge peripherals all contain microcontrollers it is possible to
+blur the lines between what is a controller and what is a peripheral by loading
+custom firmware. While this defeats much of the flexibility that Touchbridge
+was designed for, it can nonetheless be useful in some applications which are
+very sensitive to cost, power or weight, or require very high reliablity.
+
+\subsubsection{Request and Response Messages}
+
+Touchbridge nodes send and receive CAN bus messages in accordance with
+the Touchbridge Protocol as specified below. Touchbridge defines 4 different
+message types: Reqeust, Response, Indication and Error Response.
+
+The most common message types are Request and Response. These allow a
+transaction to take place between nodes as follows. Node A, which we'll call
+the requesting node, sends a Request message to node B, which we'll term the
+responding node. Node B sends a Response message back to node A. Normally the
+requesting node is a controller and the responding node a peripheral, though
+there can be exceptions to this rule.
+
+Touchbridge uses the request-response transaction to execute remote procedure
+calls (RPCs) which perform useful actions. The request message contains the
+identifier of the function to be called, along with any parameters it needs.
+The responding node receives the request message and executes the required
+function. It then sends a response back to the requesting node which contains
+the results (if any) of executing the function. Each node can support multiple
+functions and different types of node will make different functions available.
+
+For example, a controller node might send a message to a peripheral node which
+has high-current output drivers for controlling lamps or motors (e.g. the
+TBG-HSO card.) The request message calls a function which controls digital
+outputs.  The message data field contains a bit mask and a value which says
+which outputs are to be affected and whether they should be on or off. The
+peripheral node aplies the changes to its output pins and sends a response
+message. In this case, the response has no data fields, it simply acknowledges
+that the function has returned propely.
+
+Another example, this time for a peripheral with analogue inputs (e.g. the
+current sensors on the TBG-HCO card.) The request message contains the function
+to be called (in this case, the "analogue read" functiona) and the channel
+number of the desired input. The function triggers the peripheral's analogue to
+digital converter, waits for the conversion to complete and then sends a
+response message containing the 16-bit value of the select analogue channel.
+
+Request messages are normally sent to a single node. However, broadcast
+requests are possible. Multiple nodes will then try to reply at once.
+Forunately, CAN provides a method of coordinating this potentially chaotic
+scenario by ensuring that the most "dominant" message gets through first. Put
+simply, this is the one with the most zeros near the front of the message.
+Broadcast Requests are used to implement dynamic address assignment.
+
+
+\subsubsection{Indication and Error Response Messages}
+
+In addition to Reqeuest and Response messages, Touchbridge has two further
+message types - Indication and Error Response.
+
+An Error Response message is sent instead of a normal response if the
+responding node does not know how to interpret a request (e.g. because it
+doesn't support the requested function or the parameters passed to a function
+where incorrect.)
+
+Indication messages are like request messages which do not expect a response.
+
+When a transaction is not required (i.e. when the requester does not need
+acknowledgment that the request has been received) indication messages may be
+used in place of request messages to be used to reduce traffic on the bus.
+
+Indication messages sent to the broadcast address can be used notifying all
+nodes of an event, such as a timer tick for triggering data sampling.
+
+They can also be used for "unreliable" asyncronous event notification from
+periphel back to the controller. For "reliable" event notification,
+transactions can be used where the peripheral is the requester and the
+controller the responder.
+
+
+
+\subsection{CAN Message ID}
+
+\begin{figure}[H]
+    \centering
+    \begin{bytefield}[endianness=big,bitwidth=1.1em,bitheight=\widthof{~Resvd~},
+                boxformatting={\centering\small}
+       ]{29}
+        \bitheader[endianness=big]{28,27,26,25,24,23,12,11,0} \\
+        \bitbox{2}{Type} & \bitbox{1}{\rotatebox{90}{Resvd}} & \bitbox{1}{\rotatebox{90}{Cont}} & \bitbox{1}{\rotatebox{90}{State}} & \bitbox{12}{Dst Addr} & \bitbox{12}{Src Addr} \\
+    \end{bytefield}
+    \begin{bytefield}[endianness=big,bitwidth=1.1em,
+                boxformatting={\centering\small}
+       ]{12}
+        \bitheader[endianness=big]{11,6,5,0} \\
+        \bitbox{6}{Node Addr} & \bitbox{6}{Port} \\
+    \end{bytefield}
+    \caption{TBG CAN ID \& Address Bit Fields}
+\end{figure}
+
+
+\subsubsection{Type field}
+
+    The type field is 2 bits wide and can have the following values.
+
+\begin{table}[H]
+    \centering
+
+    \begin{tabular}[pos]{l l l l}
+    \toprule
+        Type    & Transaction           & Direction \\
+    \midrule
+        0       & REQUEST               & \outdir  \\
+        1       & RESPONSE              & \indir   \\
+        2       & ERROR RESPONSE        & \indir   \\
+        3       & INDICATION            & \bidir   \\
+    \bottomrule
+    \end{tabular}
+
+    \caption{Touchbridge Message Types}\label{tab:tbg_msg_types}
+\end{table}
+
+\subsubsection{Continuation (Cont) bit}
+
+    The continuation bit is set if the message contains data which is to follow
+on from data in a previous message. This is useful when a remote function needs
+more than 8 bytes of data.
+
+    If the continuation bit is not set, the message is either self-contained or
+it is the first message of a multi-part set (i.e. the following messages will
+have their continuation bit set.) Touchbridge does not explicitly have a way of
+indicating the last message in a multi-part set. This means there must be
+another way of knowing when the last message has been received - either by the
+receiver waiting for a set number of bytes (the number of which is known by the
+sender) or by explicitly stating the total message length by using a field in
+the first message.
+
+\subsubsection{State bit}
+
+    The state bit allows reliable transactions to be carried out. A transaction
+consists of a request message sent from node A to node B, followed by an
+response message sent from node B back to node A. In some cases, it is
+desirable that an action be definitely carried out by B. In this case, A can
+keep sending requests to B until a response is returned. Furthermore, it is
+sometimes desireable that an action definitely be carried out by B but only
+once. An example of when such behaviour is required is when A calls a function
+on B that needs a multi-part message.  Because the function will only work
+properly when all the parts of the message have been received, a reliable
+transaction must be used for each part. Reliable transactions are also useful
+when the node is controlling certain types of device, e.g. one which dispenses
+some ammount of a physical material (e.g. products from a vending machine.).
+Without reliable transactions, it is possible that a minor network glitch could
+cause a response packet to go missing. This could cause the caller to make
+multiple requests resulting in too much stuff being dispensed.
+
+The state bit allows reliable transaction to be achieved and it works like
+this: A sends a request with the state bit set to 0. Some of these request
+could potentially go missing. When B finally receives the request, it carries
+out the requested action and sends a response with the state bit set the same
+as in the request.  It then inverts the value of the state bit and saves it.
+Any further messages which do not match the new state are acknowledged but do
+not cause a new action to occur. Some of the responses may potentially go
+missing. A keeps sending requests with the same value of the state bit until it
+receives a response with the same state as in the original request. It then
+toggles the state value used in the next request.
+
+Because state must be saved on the nodes which are taking part in a reliable
+transaction and furthermore this state is specific to the pair of nodes which
+are partaking, resources must be allocated on the nodes. There must also be a
+way to tell the nodes whether or not reliable transactions should be used for a
+particular message. Therefor a set-up stage is required in order to enable
+reliable transactions and to specify which nodes and ports are taking part in
+it. In order to avoid excessive resources being used on peripheral nodes,
+reliable transactions are set-up as follows:
+
+For incoming messages: each active port on a device has its own local state bit
+and an enable bit.  A command can be sent to the device to enable reliable
+transactions on a particular port.
+
+For outgoing messages: each active port that supports outgoing asynchronous
+messages has a destination address register. If set, reliable transactions will
+be used instead of asynchronous indication messages.
+
+Note that for the re-transmission aspect to work, a re-try counter is required
+per outgoing port and a retry limit needs to be defined.
+
+It is not planned to implement reliable transactions in the first version of
+the Touchbridge protocol. Implementation would probably require a 'reliable
+message' queue on the nodes. It would also make sense to make that queue of
+buffers which support multi-part messages as these are one of the main
+use-cases of reliable transactions.
+
+
+\begin{figure}[H]
+    \centering
+    \begin{bytefield}[endianness=big,bitwidth=\widthof{Overflow},bitheight=\heightof{\vbox{RX\\Data\\Avail\\IE\\~}},
+                boxformatting={\centering\small}
+       ]{8}
+        \bitheader[endianness=big]{7,4,3,2,1,0} \\
+        \begin{rightwordgroup}{Status (RD)}
+            \bitbox{4}{Address} & \bitbox{1}{Reserved} & \bitbox{1}{\vbox{RX\\Buf\\Overflow}}  & \bitbox{1}{\vbox{RX\\Data\\Available}} & \bitbox{1}{\vbox{TX\\Buf\\Empty}}
+        \end{rightwordgroup} \\
+        \begin{rightwordgroup}{Config (WR)} \\
+            \bitbox{4}{Address} & \bitbox{1}{Reserved} & \bitbox{1}{\vbox{RX\\Buf\\Overflow\\Reset}}  & \bitbox{1}{\vbox{RX\\Data\\Available\\IE}} & \bitbox{1}{\vbox{TX\\Buf\\Empty\\IE}}
+        \end{rightwordgroup} \\
+    \end{bytefield}
+    \caption{TBG RPI Config/Status/Address Register (ADSEL=1) Fields}
+\end{figure}
+
+\begin{table}[H]
+    \centering
+
+    \begin{tabular}[pos]{l l l l}
+    \toprule
+        Value   & Address \\
+    \midrule
+        0       & CAN Message Buffer    \\
+        1       & CAN Address Filter 1  \\
+        2       & CAN Address Filter 2  \\
+        3       & Config Register 1     \\
+    \bottomrule
+    \end{tabular}
+
+    \caption{TBG RPI Address Map}\label{tab:tbg_rpi_addr}
+\end{table}
+
+\end{document}
+

@@ -1,0 +1,8 @@
+version.c
+*.lck
+*.o
+.*.swp
+*.bin
+*.elf
+*.hex
+tmp
