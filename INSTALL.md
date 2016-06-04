@@ -11,7 +11,7 @@ on a Raspberry Pi:
 ## 1. Getting Touchbridge
 
 ~~~~
-https://github.com/Touchbridge/Touchbridge.git
+git clone https://github.com/Touchbridge/Touchbridge.git
 ~~~~
 
 ## 2. Installing dependencies
