@@ -17,4 +17,4 @@ else
 fi
 
 # Archive target of symlinks (for tbg_protocol.h)
-$TAR ch Makefile *.c *.h | ssh ${PI_IP} "(mkdir -p Touchbridge && cd Touchbridge && tar x && make)"
+$TAR ch Makefile *.c *.h | ssh ${PI_IP} "(mkdir -p Touchbridge/host_src && cd Touchbridge/host_src && tar x && make)"

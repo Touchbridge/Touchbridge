@@ -29,6 +29,7 @@ endif
 ifeq ($(UNAME_S),Darwin)
     #CPPFLAGS += -D OSX
     CPPFLAGS += -I/usr/local/include
+    LDFLAGS += -L/usr/local/lib
     TARGETS=tbg_client
 endif
 
@@ -46,7 +47,7 @@ all: $(TARGETS)
 
 tbg_server: tbg_server.o rpi_io.o rpi_int.o tbg_rpi.o tbg_util.o
 
-tbg_client: tbg_client.o tbg_util.o
+tbg_client: tbg_client.o tbg_util.o tbg_api.o
 
 
 clean:
