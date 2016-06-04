@@ -1,11 +1,14 @@
 # Install instructions for Raspberry Pi
 
+*NOTE: the following steps assume you are installing on a Pi 2 running the Jessy
+distro and that a recent version of Node-RED is already installed.*
+
 There are four steps to installing Touchbridge and its node-red support
 on a Raspberry Pi:
 
 1. Get Touchbridge
 2. Install dependencies (the extra libraries we need to build Touchbridge)
-3. Build and install touchbridge
+3. Build and install Touchbridge
 4. Setting up the pi to start the Touchbridge server on boot-up
 
 ## 1. Getting Touchbridge
@@ -53,7 +56,7 @@ Use your text editor of choice to add the following line to
 /usr/local/bin/tbg_server &
 ~~~~
 
-You can now reboot the pi and use touchbridge via node-red by
+You can now reboot the pi and use Touchbridge via node-red by
 connecting to port 1880 in the usual way. You should find there
 are now several Touchbridge nodes available in node-red near
 the bottom of the node pallet.
