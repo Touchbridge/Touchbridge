@@ -45,7 +45,7 @@ CFLAGS += -MMD -MP -MF .dep/$(@F).d
 
 all: $(TARGETS)
 
-tbg_server: tbg_server.o rpi_io.o rpi_int.o tbg_rpi.o tbg_util.o
+tbg_server: tbg_server.o rpi_io.o rpi_int.o tbg_rpi.o tbg_util.o clients.o server_socket.o
 
 tbg_client: tbg_client.o tbg_util.o tbg_api.o
 
