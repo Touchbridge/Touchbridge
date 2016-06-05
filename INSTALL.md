@@ -34,6 +34,7 @@ cd czmq-3.0.2/
 ./configure
 make check
 sudo make install
+sudo ldconfig
 cd ..
 ~~~~
 
