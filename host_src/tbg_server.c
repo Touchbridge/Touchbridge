@@ -18,21 +18,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-/*
- * Example for using zmq router.
- *
- * J.Macfarlane 2015-08-15
- */
 
 #include <glib.h>
-#include <zmq.h>
-#include <czmq.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <unistd.h>
 #include <string.h>
 #include <assert.h>
 #include <poll.h>
+#include <sys/socket.h>
 #include "debug.h"
 
 #include "rpi_io.h"
