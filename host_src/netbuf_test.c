@@ -11,6 +11,7 @@
 
 #include "debug.h"
 #include "server_socket.h"
+#include "netbuf.h"
 
 
 typedef int client_rd_callback_t(unsigned char *data, int length, void *cb_data);
