@@ -3,3 +3,6 @@ build
 tmp
 *.o
 .*.swp
+netbuf_srv
+netbuf_cli
+tbg_client

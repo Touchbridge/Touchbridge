@@ -10,22 +10,15 @@
 
 #include "netbuf.h"
 
-void buf_init(buf_t *buf);
-void buf_reset(buf_t *buf);
-void buf_resize(buf_t *buf, int length);
-int buf_get(buf_t *buf, uint8_t *data, int length);
-void buf_append8(buf_t *buf, uint8_t data);
-void buf_append32(buf_t *buf, uint32_t data);
-void buf_append(buf_t *buf, uint8_t *data, int length);
-int buf_is_empty(buf_t *buf);
-int buf_available(buf_t *buf);
 
 netbuf_decoder_init_fn_t tlv1_dec_init;
+netbuf_decoder_free_fn_t tlv1_dec_free;
 netbuf_decoder_fn_t tlv1_decode;
 netbuf_encoder_fn_t tlv1_encode;
 
 const netbuf_codec_t tlv1_codec = {
     .dec_init_fn = tlv1_dec_init,
+    .dec_free_fn = tlv1_dec_free,
     .dec_in_fn = tlv1_decode,
     .enc_fn = tlv1_encode,
 };
@@ -37,6 +30,14 @@ void buf_init(buf_t *buf)
     buf->buf = NULL;
     buf->size = 0;
     buf->in_ptr = 0;
+    buf->out_ptr = 0;
+}
+
+void buf_init_from_data(buf_t *buf, uint8_t *data, int size)
+{
+    buf->buf = data;
+    buf->size = size;
+    buf->in_ptr = size;
     buf->out_ptr = 0;
 }
 
@@ -148,7 +149,7 @@ int buf_recv(netbuf_t *nb, buf_t *buf)
     return ret;
 }
 
-netbuf_t *netbuf_new(int socket, netbuf_codec_t *codec)
+netbuf_t *netbuf_new(int socket, const netbuf_codec_t *codec)
 {
     netbuf_t *nb = malloc(sizeof(netbuf_t));
     assert(nb != NULL);
@@ -160,6 +161,9 @@ netbuf_t *netbuf_new(int socket, netbuf_codec_t *codec)
     nb->tx_enable_cb = NULL;
     nb->tx_disable_cb = NULL;
     nb->socket = socket;
+    buf_init(nb->txbuf + 0);
+    buf_init(nb->txbuf + 1);
+    buf_init(&nb->rx_data);
     return nb;
 }
 
@@ -167,7 +171,10 @@ void netbuf_free(netbuf_t *nb)
 {
     free(nb->txbuf[0].buf);
     free(nb->txbuf[1].buf);
-    free(nb->rx_in_buf.buf);
+    free(nb->rx_data.buf);
+    if (nb->codec && nb->codec->dec_free_fn) {
+        nb->codec->dec_free_fn(nb);
+    }
     free(nb);
 }
 
@@ -236,32 +243,21 @@ void netbuf_add_msg(netbuf_t *nb, uint8_t type, uint8_t *data, int length)
     }
 }
 
-int netbuf_recv(netbuf_t *nb, uint8_t *data, int size, int *type, int *len)
+/*
+ * Given a buf_t containing some data, run the message decoder until we
+ * get a valid message (returns 1) or runs out of data (returns 0).
+ * If we return 1, the message can be retrieved from nb using
+ * the NETBUF_GET_* macros.
+ */
+int netbuf_decode(netbuf_t *nb, buf_t *buf)
 {
-    int ret;
     assert(nb != NULL);
     assert(nb->codec != NULL);
     assert(nb->codec->dec_in_fn != NULL);
-    nb->rx_data = data;
-    nb->rx_data_size = size;
 
-    do {
-        /*
-         * If data in rxbuf, attempt to decode it until
-         * we get a valid message. If we run out
-         * of data, attempt to get some more from the socket.
-         * Exit when no more is available.
-         */
-        if (buf_is_empty(&nb->rx_in_buf)) { 
-            ret = buf_recv(nb, &nb->rx_in_buf);
-            if (ret <= 0)
-                return ret;
-        }
-        ret = nb->codec->dec_in_fn(nb, &nb->rx_in_buf);
-        assert(ret > 0 || buf_is_empty(&nb->rx_in_buf));
-    } while (!ret);
-    return ret;
+    return nb->codec->dec_in_fn(nb, buf);
 }
+
 
 /******************************************************************************
  *  TLV 1 Codec
@@ -303,17 +299,12 @@ typedef struct {
     int state;
     tlv1_hdr_t hdr;
     int ptr;
-    int hdr_len;
-    buf_t buf;      // Buffer for decoded data.
 } tlv1_decoder_t;
 
 enum {
     TLV1_DEC_STATE_HEADER,
     TLV1_DEC_STATE_HEADER_EXT,
     TLV1_DEC_STATE_DATA,
-    TLV1_DEC_STATE_SKIP,
-    TLV1_DEC_STATE_DONE,
-    TLV1_DEC_STATE_ERR,
 };
 
 #define TLV1_HDR_LEN_SHORT    (2)
@@ -322,10 +313,16 @@ enum {
 
 void tlv1_dec_init(netbuf_t *nb)
 {
-    tlv1_decoder_t *dec = nb->dec_state;
+    tlv1_decoder_t *dec = malloc(sizeof(tlv1_decoder_t));
+    nb->dec_state = dec;
     dec->state = TLV1_DEC_STATE_HEADER;
     dec->ptr = 0;
-    buf_init(&dec->buf);
+}
+
+void tlv1_dec_free(netbuf_t *nb)
+{
+    tlv1_decoder_t *dec = nb->dec_state;
+    free(dec);
 }
 
 int do_recv(buf_t *buf, uint8_t *data, int len, int *ptr)
@@ -343,22 +340,6 @@ int do_recv(buf_t *buf, uint8_t *data, int len, int *ptr)
         return 0;
 }
 
-int do_skip(buf_t *buf, int len, int *ptr)
-{
-    assert(ptr != NULL);
-    assert(*ptr < len);
-    int rem = len - *ptr;
-    int recvd = buf_get(buf, NULL, rem);
-    if (recvd < 0) return recvd;
-    assert(recvd <= rem);
-    *ptr += recvd;
-    if (recvd == rem)
-        return 1;
-    else
-        return 0;
-}
-
-
 int tlv1_decode(netbuf_t *nb, buf_t *buf)
 {
     tlv1_decoder_t *dec = nb->dec_state;
@@ -371,11 +352,14 @@ int tlv1_decode(netbuf_t *nb, buf_t *buf)
         if (ret == 0)
             return 0;
 
+        nb->rx_type = dec->hdr.type;
         if (dec->hdr.length == 0xff) {
             dec->state = TLV1_DEC_STATE_HEADER_EXT;
             // Don't reset pointer
         } else {
             dec->state = TLV1_DEC_STATE_DATA;
+            nb->rx_len = dec->hdr.length;
+            buf_resize(&nb->rx_data, nb->rx_len);
             dec->ptr = 0;
         }
         // We can drop through to next state
@@ -389,6 +373,8 @@ int tlv1_decode(netbuf_t *nb, buf_t *buf)
         if (ret == 0)
             return 0;
 
+        nb->rx_len = dec->hdr.ext_length;
+        buf_resize(&nb->rx_data, nb->rx_len);
         dec->state = TLV1_DEC_STATE_DATA;
         dec->ptr = 0;
         // We can drop through to next state
@@ -396,47 +382,17 @@ int tlv1_decode(netbuf_t *nb, buf_t *buf)
 
     if (dec->state == TLV1_DEC_STATE_DATA) {
         // Receiving data
-        int len = (nb->rx_data_size < dec->hdr.ext_length) ? nb->rx_data_size : dec->hdr.ext_length;
-        int ret = do_recv(buf, nb->rx_data, len, &dec->ptr);
+        int ret = do_recv(buf, nb->rx_data.buf, nb->rx_len, &dec->ptr);
 
         // Not enough data recv'd yet
         if (ret == 0)
             return 0;
 
-        if (nb->rx_data_size < dec->hdr.ext_length) {
-            // Data was longer than supplied buffer, need to skip reset of it.
-            dec->state = TLV1_DEC_STATE_SKIP;
-        } else {
-            // We're done.
-            dec->state = TLV1_DEC_STATE_DONE;
-        }
-    }
-
-    if (dec->state == TLV1_DEC_STATE_SKIP) {
-        // Receiving data
-        int rem;
-        while ((rem = dec->hdr.ext_length - dec->ptr) > 0) {
-            // FIXME: unchecked
-            int ret = do_skip(buf, rem, &dec->ptr);
-
-            // Not enough data skipped yet
-            if (ret == 0)
-                return 0;
-
-        }
-
-        if (nb->rx_data_size < dec->hdr.ext_length) {
-            // Data was longer than supplied buffer, need to dump reset of it.
-            dec->state = TLV1_DEC_STATE_SKIP;
-        } else {
-            // We're done.
-            dec->state = TLV1_DEC_STATE_DONE;
-        }
-    }
-
-    if (dec->state == TLV1_DEC_STATE_DONE) {
+        dec->state = TLV1_DEC_STATE_HEADER;
+        dec->ptr = 0;
         return 1;
     }
+
 
     // We shouldn't ever reach here unless we get into
     // a mystery state or user calls this fn in error

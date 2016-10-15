@@ -30,7 +30,7 @@ ifeq ($(UNAME_S),Darwin)
     #CPPFLAGS += -D OSX
     CPPFLAGS += -I/usr/local/include
     LDFLAGS += -L/usr/local/lib
-    TARGETS=tbg_client netbuf_test
+    TARGETS=tbg_client netbuf_srv netbuf_cli
 endif
 
 CPPFLAGS_GTK = `pkg-config --cflags glib-2.0`
@@ -49,7 +49,9 @@ tbg_server: tbg_server.o rpi_io.o rpi_int.o tbg_rpi.o tbg_util.o clients.o serve
 
 tbg_client: tbg_client.o tbg_util.o tbg_api.o
 
-netbuf_test: netbuf_test.o netbuf.o server_socket.o
+netbuf_srv: netbuf_srv.o netbuf.o server_socket.o netcon.o
+
+netbuf_cli: netbuf_cli.o netbuf.o netcon.o
 
 
 clean:
