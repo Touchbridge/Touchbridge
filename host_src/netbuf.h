@@ -6,12 +6,12 @@ struct netbuf_s;
 typedef struct buf_s {
     uint8_t *buf;
     int size;           // Allocated size of buf
-    int in_ptr;         // Index of next free octet
-    int out_ptr;        // Index of next octet not sent
+    int in_ptr;         // Index of next free byte to write to
+    int out_ptr;        // Index of next byte to read from
 } buf_t;
 
 void buf_init(buf_t *buf);
-void buf_init_from_data(buf_t *buf, uint8_t *data, int size);
+void buf_init_from_static(buf_t *buf, uint8_t *data, int size);
 void buf_reset(buf_t *buf);
 void buf_resize(buf_t *buf, int length);
 int buf_get(buf_t *buf, uint8_t *data, int length);
@@ -19,7 +19,8 @@ void buf_append8(buf_t *buf, uint8_t data);
 void buf_append32(buf_t *buf, uint32_t data);
 void buf_append(buf_t *buf, uint8_t *data, int length);
 int buf_is_empty(buf_t *buf);
-int buf_available(buf_t *buf);
+int buf_available_rd(buf_t *buf);
+int buf_recv(int fd, buf_t *buf, int flags);
 
 
 /*

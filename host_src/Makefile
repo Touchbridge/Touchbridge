@@ -38,7 +38,8 @@ CPPFLAGS += $(CPPFLAGS_GTK)
 LOADLIBES_GTK = `pkg-config --libs glib-2.0`
 LOADLIBES += $(LOADLIBES_GTK)
 LOADLIBES += -lzmq -lczmq $(LRT)
-CFLAGS = -Wall -g -std=c99 -O
+#CFLAGS = -Wall -g -std=c99 -O
+CFLAGS = -Wall -g -std=c99
 
 # Generate dependency information
 CFLAGS += -MMD -MP -MF .dep/$(@F).d

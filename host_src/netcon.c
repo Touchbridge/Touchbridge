@@ -156,7 +156,7 @@ int netcon_main_loop(netcon_t *nc)
                 netcon_fd_t *nfd = &g_array_index(nc->netcon_fds, netcon_fd_t, i);
                 if (pfd->revents > 0) {
                     if (nfd->callback) {
-                        nfd->callback(nfd->data, pfd->fd, pfd->revents);
+                        nfd->callback(nc, nfd->data, pfd->fd, pfd->revents);
                     }
                     pfd->revents = 0;
                 }

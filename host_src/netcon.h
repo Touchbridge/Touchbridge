@@ -10,13 +10,14 @@
 struct netcon_fd_s;
 struct netcon_s;
 
-typedef int (netcon_fn_t)(void *cb_data, int fd, short revents);
+typedef int (netcon_fn_t)(struct netcon_s *nc, void *cb_data, int fd, short revents);
 
 #define NETCON_USER_DATA(nd)    ((nd)->data)
 #define NETCON_FD (nd)          ((nd)->fd)
 
 typedef struct netcon_fd_t {
     struct sockaddr addr;
+    socklen_t addr_len;
     netcon_fn_t *callback;
     void *data;
 } netcon_fd_t;

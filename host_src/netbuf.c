@@ -33,11 +33,11 @@ void buf_init(buf_t *buf)
     buf->out_ptr = 0;
 }
 
-void buf_init_from_data(buf_t *buf, uint8_t *data, int size)
+void buf_init_from_static(buf_t *buf, uint8_t *data, int size)
 {
     buf->buf = data;
     buf->size = size;
-    buf->in_ptr = size;
+    buf->in_ptr = 0;
     buf->out_ptr = 0;
 }
 
@@ -50,7 +50,7 @@ void buf_reset(buf_t *buf)
 void buf_resize(buf_t *buf, int length)
 {
     int size = buf->in_ptr + length;
-    if (size < buf->size) {
+    if (size > buf->size) {
         // Round-up to nearest multiple of BUF_UNIT
         // to save a bunch calls to realloc for
         // small increments in size.
@@ -67,7 +67,8 @@ void buf_resize(buf_t *buf, int length)
  */
 int buf_get(buf_t *buf, uint8_t *data, int length)
 {
-    int ret = buf_available(buf);
+    int ret = buf_available_rd(buf);
+    assert(ret >= 0);
     ret = (ret > length) ? length : ret;
     if (data)
         memcpy(data, buf->buf + buf->out_ptr, ret);
@@ -115,7 +116,7 @@ int buf_is_empty(buf_t *buf)
 /*
  * Return bytes available for reading from buf.
  */
-int buf_available(buf_t *buf)
+int buf_available_rd(buf_t *buf)
 {
     return (buf->in_ptr - buf->out_ptr);
 }
@@ -140,12 +141,12 @@ int buf_send(netbuf_t *nb, buf_t *buf)
  * Receive data into bottom of buf. Return -ve on error,
  * zero if no data available, +ve otherwise.
  */
-int buf_recv(netbuf_t *nb, buf_t *buf)
+int buf_recv(int fd, buf_t *buf, int flags)
 {
-    int ret = _netbuf_recv(nb, buf->buf, buf->size); 
+    int ret = recv(fd, buf->buf, buf->size, flags); 
     if (ret < 0)
         return ret;
-    buf->out_ptr = ret;
+    buf->in_ptr = ret;
     return ret;
 }
 
@@ -328,7 +329,7 @@ void tlv1_dec_free(netbuf_t *nb)
 int do_recv(buf_t *buf, uint8_t *data, int len, int *ptr)
 {
     assert(ptr != NULL);
-    assert(*ptr < len);
+    assert(*ptr <= len);
     int rem = len - *ptr;
     int recvd = buf_get(buf, data + *ptr, rem);
     if (recvd < 0) return recvd;
