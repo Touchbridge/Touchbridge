@@ -9,6 +9,7 @@
 #include <poll.h>
 #include <arpa/inet.h>
 #include <sys/socket.h>
+#include <sys/types.h>
 
 #include "netcon.h"
 
@@ -102,16 +103,16 @@ void netcon_add_fd(netcon_t *nc, int fd, short events, netcon_fn_t *cb, void *cb
 {
     struct pollfd pfd = { .fd = fd, .events = events, .revents = 0 };
     netcon_fd_t nfd = { .callback = cb, .data = cb_data };
-    memset(&nfd, 0, sizeof(struct sockaddr));
     g_array_append_val(nc->pollfds, pfd);
     g_array_append_val(nc->netcon_fds, nfd);
 }
 
-int netcon_accept_fd(netcon_t *nc, int fd, short events, netcon_fn_t *cb, void *cb_data)
+int netcon_accept_fd(netcon_t *nc, int fd, short events, netcon_fn_t *cb, void *cb_data, netcon_addr_t *addr)
 {
     netcon_fd_t nfd = { .callback = cb, .data = cb_data };
-    socklen_t addrlen;
-    int ret = accept(fd, &nfd.addr, &addrlen);
+    struct sockaddr sock_addr;
+    socklen_t addrlen = sizeof(sock_addr);
+    int ret = accept(fd, &sock_addr, &addrlen);
     if (ret < 0) {
         fprintf(stderr, "%s: accept: %s\n", __FUNCTION__, strerror(errno));
         return -1;
@@ -119,6 +120,10 @@ int netcon_accept_fd(netcon_t *nc, int fd, short events, netcon_fn_t *cb, void *
     struct pollfd pfd = { .fd = ret, .events = events, .revents = 0 };
     g_array_append_val(nc->pollfds, pfd);
     g_array_append_val(nc->netcon_fds, nfd);
+    if (addr) {
+        addr->addr = sock_addr;
+        addr->addr_len = addrlen;
+    }
     return ret;
 }
 
@@ -137,8 +142,8 @@ void netcon_remove_fd(netcon_t *nc, int fd)
 
 int netcon_poll(netcon_t *nc, int timeout)
 {
-    printf("Polling %d fds\n", nc->pollfds->len);
-    return poll((struct pollfd *)nc->pollfds->data, nc->pollfds->len, timeout);
+    int ret = poll((struct pollfd *)nc->pollfds->data, nc->pollfds->len, timeout);
+    return ret;
 }
 
 int netcon_main_loop(netcon_t *nc)
@@ -151,7 +156,11 @@ int netcon_main_loop(netcon_t *nc)
         }
 
         if (ret > 0) {
-            for (int i = 0; i < nc->pollfds->len; i++) {
+            // We need to copy current number of fds as if we accept and
+            // add a new connection, we'll end up iterating over it even
+            // though it hasn't been affected by the call to poll().
+            int num_fds = nc->pollfds->len;
+            for (int i = 0; i < num_fds; i++) {
                 struct pollfd *pfd = &g_array_index(nc->pollfds, struct pollfd, i);
                 netcon_fd_t *nfd = &g_array_index(nc->netcon_fds, netcon_fd_t, i);
                 if (pfd->revents > 0) {
@@ -170,4 +179,23 @@ void netcon_free(netcon_t *nc)
     g_array_free(nc->pollfds, TRUE);
     g_array_free(nc->netcon_fds, TRUE);
     free(nc);
+}
+
+char *netcon_addr_to_str(netcon_addr_t *a)
+{
+    int len = INET_ADDRSTRLEN;
+    char *addrstr = g_new(char, len);
+    struct sockaddr_in *in_addr = (struct sockaddr_in *)&a->addr;
+    const char *ret = inet_ntop(AF_INET, &in_addr->sin_addr, addrstr, len);
+    if (ret == NULL) {
+    	fprintf(stderr, "%s: inet_ntop: %s\n", __FUNCTION__, strerror(errno));
+        return NULL;
+    }
+    return  addrstr;
+}
+
+unsigned short netcon_addr_port(netcon_addr_t *a)
+{
+    struct sockaddr_in *in_addr = (struct sockaddr_in *)&a->addr;
+    return ntohs(in_addr->sin_port);
 }

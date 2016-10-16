@@ -7,6 +7,7 @@
 #include <assert.h>
 #include <poll.h>
 #include <sys/socket.h>
+#include <arpa/inet.h>
 
 #include <glib.h>
 
@@ -48,13 +49,16 @@ int accept_callback(netcon_t *nc, void *cb_data, int fd, short revents)
     // Get a new netbuf and give it a fake socket number as we
     // don't know it until after accept.
     netbuf_t *nb = netbuf_new(-1, &tlv1_codec);
-    int ret = netcon_accept_fd(nc, fd, POLLIN, read_callback, nb);
+    netcon_addr_t addr;
+    int ret = netcon_accept_fd(nc, fd, POLLIN, read_callback, nb, &addr);
     if (ret < 0) {
         exit(-1);
     }
     // Set the socket in the netbuf
     nb->socket = ret;
-    printf("Got new client on fd %d\n", ret);
+    char *addrstr = netcon_addr_to_str(&addr);
+    printf("Got new client on fd %d from %s:%d\n", ret, addrstr, netcon_addr_port(&addr));
+    g_free(addrstr);
     return 0;
 }
 

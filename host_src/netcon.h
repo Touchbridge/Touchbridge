@@ -16,11 +16,14 @@ typedef int (netcon_fn_t)(struct netcon_s *nc, void *cb_data, int fd, short reve
 #define NETCON_FD (nd)          ((nd)->fd)
 
 typedef struct netcon_fd_t {
-    struct sockaddr addr;
-    socklen_t addr_len;
     netcon_fn_t *callback;
     void *data;
 } netcon_fd_t;
+
+typedef struct netcon_addr_s {
+    struct sockaddr addr;   // Address data
+    socklen_t addr_len;     // Length of address data
+} netcon_addr_t;
 
 typedef struct netcon_s {
     GArray *pollfds;        // GArray of struct pollfd
@@ -32,10 +35,13 @@ int netcon_sock_connect(char *net_addr, unsigned short port);
 
 netcon_t *netcon_new(void);
 void netcon_add_fd(netcon_t *nc, int fd, short events, netcon_fn_t *cb, void *cb_data);
-int netcon_accept_fd(netcon_t *nc, int fd, short events, netcon_fn_t *cb, void *cb_data);
+int netcon_accept_fd(netcon_t *nc, int fd, short events, netcon_fn_t *cb, void *cb_data, netcon_addr_t *addr);
 void netcon_remove_fd(netcon_t *nc, int fd);
 int netcon_poll(netcon_t *nc, int timeout);
 int netcon_main_loop(netcon_t *nc);
 void netcon_free(netcon_t *nc);
+
+char *netcon_addr_to_str(netcon_addr_t *a);
+unsigned short netcon_addr_port(netcon_addr_t *a);
 
 #endif //NETSOCK_H
