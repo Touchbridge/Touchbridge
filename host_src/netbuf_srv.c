@@ -31,6 +31,7 @@ int read_callback(netcon_t *nc, void *cb_data, int fd, short revents)
     if (ret == 0) {
         printf("Client on fd %d disconnected\n", fd);
         netcon_remove_fd(nc, fd);
+        close(fd);
         netbuf_free(nb);
     } else {
         printf("Got %d bytes of data from client on fd %d\n", ret, fd);

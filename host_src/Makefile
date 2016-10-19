@@ -23,7 +23,7 @@ INSTFILES=tbg_client tbg_server
 UNAME_S := $(shell uname -s)
 ifeq ($(UNAME_S),Linux)
     #CPPFLAGS += -D LINUX
-    TARGETS=tbg_server tbg_client
+    TARGETS=tbg_server tbg_client netbuf_srv netbuf_cli
     LRT=-lrt
 endif
 ifeq ($(UNAME_S),Darwin)
