@@ -127,7 +127,6 @@ int netcon_accept_fd(netcon_t *nc, int fd, short events, netcon_fn_t *cb, void *
     return ret;
 }
 
-
 void netcon_remove_fd(netcon_t *nc, int fd)
 {
     for (int i = 0; i < nc->pollfds->len; i++) {
@@ -199,3 +198,138 @@ unsigned short netcon_addr_port(netcon_addr_t *a)
     struct sockaddr_in *in_addr = (struct sockaddr_in *)&a->addr;
     return ntohs(in_addr->sin_port);
 }
+
+/*
+ * This is a tx_enable callback for netcon_t clients.
+ */
+void netcon_tx_enable_cb(netbuf_t *nb, void *data)
+{
+    struct pollfd *pfd = data;
+    pfd->events |= POLLOUT;
+}
+
+/*
+ * This is a tx_disable callback for netcon_t clients.
+ */
+void netcon_tx_disable_cb(netbuf_t *nb, void *data)
+{
+    struct pollfd *pfd = data;
+    pfd->events &= ~POLLOUT;
+}
+
+#define NETBUF_SRV_RX_SIZE      (4096)
+
+/*
+ * This is the callback fn for poll events on netbuf clients.
+ * Internal use only.
+ */
+static int netbuf_srv_poll_cb(netcon_t *nc, void *cb_data, int fd, short revents)
+{
+    netbuf_cli_t *cli = cb_data;
+    netbuf_srv_t *srv = cli->srv;
+
+    if (revents & POLLIN) {
+        unsigned char recv_buf[NETBUF_SRV_RX_SIZE];
+        buf_t buf;
+
+        buf_init_from_static(&buf, recv_buf, NETBUF_SRV_RX_SIZE);
+
+        int ret = buf_recv(fd, &buf, 0);
+        
+        if (ret < 0) {
+            fprintf(stderr, "%s: read(fd=%d): %s\n", __FUNCTION__, fd, strerror(errno));
+            return -1;
+        }
+
+        if (ret == 0) {
+            netcon_remove_fd(nc, fd);
+            close(fd);
+            netbuf_free(cli->nb);
+            // Call user's close callback
+            if (srv->close_cb != NULL) {
+                srv->close_cb(cli);
+            }
+            // Remove client from server's list. We have to do some pointer
+            // arithmetic to get index.
+            g_array_remove_index(srv->clients, cli - (netbuf_cli_t *)srv->clients->data);
+            
+        } else {
+            while (netbuf_decode(cli->nb, &buf) > 0) {
+                if (NETBUF_GET_TYPE(cli->nb) > 0 && srv->read_cb != NULL) {
+                    srv->read_cb(cli, NETBUF_GET_TYPE(cli->nb), NETBUF_GET_LENGTH(cli->nb), NETBUF_GET_DATA(cli->nb));
+                }
+            }
+        }
+    }
+    if (revents & POLLOUT) {
+        // Send any pending data
+        netbuf_send(cli->nb);
+    }
+    
+    return 0;
+}
+/*
+ * This is the callback fn for accepting netbuf clients.
+ * Internal use only.
+ */
+static int netbuf_srv_accept_cb(netcon_t *nc, void *cb_data, int fd, short revents)
+{
+    netbuf_srv_t *srv = cb_data;
+
+    // Add an empty netbuf_cli_t to end of client array and get pointer to it
+    netbuf_cli_t tmp;
+    g_array_append_val(srv->clients, tmp);
+    netbuf_cli_t *cli =  &g_array_index(srv->clients, netbuf_cli_t, srv->clients->len-1);
+
+    // Get a new netbuf and give it a fake socket number as we
+    // don't know it until after accept.
+    cli->nb = netbuf_new(-1, &tlv1_codec);
+    cli->data = NULL; // This can be set by user-provided accept callback.
+    cli->srv = srv; // So our poll event cb can access srv
+
+    // Accept the fd and give it our poll event callback and client data.
+    int ret = netcon_accept_fd(nc, fd, POLLIN, netbuf_srv_poll_cb, cli, NULL);
+    if (ret < 0) {
+        exit(-1);
+    }
+    // Set the socket in the netbuf
+    cli->nb->socket = ret;
+
+    // Call user's accept callback
+    if (srv->accept_cb) {
+        srv->accept_cb(cli);
+    }
+
+    // Get pointer to our new pollfd in nc. This is simple as netcon_accept_fd
+    // has just appended it, so it'll be the last element in the array.
+    struct pollfd *pfd = &g_array_index(nc->pollfds, struct pollfd, nc->pollfds->len-1);
+
+    // Set tx en/dis-able callbacks for netbuf
+    netbuf_set_tx_callbacks(cli->nb, netcon_tx_enable_cb, netcon_tx_disable_cb, pfd);
+    
+
+    return 0;
+}
+
+netbuf_srv_t *netbuf_srv_new(netbuf_cli_fn_t *accept_cb, netbuf_cli_rd_fn_t *read_cb, netbuf_cli_fn_t *close_cb, void *cb_data)
+{
+    netbuf_srv_t *srv = g_new(netbuf_srv_t, 1);
+    srv->accept_cb = accept_cb;
+    srv->read_cb = read_cb;
+    srv->close_cb = close_cb;
+    srv->cb_data = cb_data;
+    srv->clients = g_array_new(FALSE, FALSE, sizeof(netbuf_cli_t));
+    return srv;
+}
+
+void netcon_add_netbuf_srv_fd(netcon_t *nc, int fd, netbuf_srv_t *srv)
+{
+    netcon_add_fd(nc, fd, POLLIN | POLLOUT, netbuf_srv_accept_cb, srv);
+}
+
+void netbuf_srv_free(netbuf_srv_t *srv)
+{
+    g_array_free(srv->clients, TRUE);
+    g_free(srv);
+}
+

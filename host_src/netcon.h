@@ -3,6 +3,7 @@
 #define NETSOCK_H
 
 #include <glib.h>
+#include <stdint.h>
 #include <poll.h>
 
 #include "netbuf.h"
@@ -30,6 +31,25 @@ typedef struct netcon_s {
     GArray *netcon_fds;     // GArray of netcon_fd_t which maps 1:1 to pollfds
 } netcon_t;
 
+struct netbuf_srv_s;
+
+typedef struct {
+    struct netbuf_srv_s *srv;
+    netbuf_t *nb;
+    void *data;
+} netbuf_cli_t;
+
+typedef int (netbuf_cli_fn_t)(netbuf_cli_t *cli);
+typedef void (netbuf_cli_rd_fn_t)(netbuf_cli_t *cli, int type, int length, uint8_t *data);
+
+typedef struct netbuf_srv_s {
+    netbuf_cli_fn_t *accept_cb;
+    netbuf_cli_fn_t *close_cb;
+    netbuf_cli_rd_fn_t *read_cb;
+    void *cb_data;
+    GArray *clients;    // Array of netbuf_cli_t
+} netbuf_srv_t;
+
 int netcon_sock_listen(char *net_addr, unsigned short port);
 int netcon_sock_connect(char *net_addr, unsigned short port);
 
@@ -43,5 +63,9 @@ void netcon_free(netcon_t *nc);
 
 char *netcon_addr_to_str(netcon_addr_t *a);
 unsigned short netcon_addr_port(netcon_addr_t *a);
+
+netbuf_srv_t *netbuf_srv_new(netbuf_cli_fn_t *accept_cb, netbuf_cli_rd_fn_t *read_cd, netbuf_cli_fn_t *close_cb, void *cb_data);
+void netcon_add_netbuf_srv_fd(netcon_t *nc, int fd, netbuf_srv_t *srv);
+void netbuf_srv_free(netbuf_srv_t *srv);
 
 #endif //NETSOCK_H

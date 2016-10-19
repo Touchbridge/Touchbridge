@@ -219,6 +219,13 @@ int netbuf_send(netbuf_t *nb)
     return ret;
 }
 
+void netbuf_set_tx_callbacks(netbuf_t *nb, netbuf_callback_t *enable_cb, netbuf_callback_t *disable_cb, void *cb_data)
+{
+    nb->tx_enable_cb = enable_cb;
+    nb->tx_disable_cb = disable_cb;
+    nb->cb_data = cb_data;
+}
+
 void netbuf_add_msg(netbuf_t *nb, uint8_t type, uint8_t *data, int length)
 {
     assert(nb != NULL);

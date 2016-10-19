@@ -63,17 +63,30 @@ int accept_callback(netcon_t *nc, void *cb_data, int fd, short revents)
     return 0;
 }
 
+void nb_read_cb(netbuf_cli_t *cli, int type, int len, uint8_t *data)
+{
+    int fd = (int)cli->data;
+    printf("Got %d byte TVL message of type %d from client on fd %d\n", len, type, fd);
+    if (type == 1) {
+        fwrite(data, len, 1, stdout);
+    }
+}
+
 int main(int argc, char **argv)
 {
 	int sock = netcon_sock_listen("127.0.0.1", 5555);
 
     netcon_t *nc = netcon_new();
 
-    netcon_add_fd(nc, sock, POLLIN, accept_callback, NULL);
+    //netcon_add_fd(nc, sock, POLLIN, accept_callback, NULL);
+    netbuf_srv_t *srv = netbuf_srv_new(NULL, nb_read_cb, NULL, NULL);
+
+    netcon_add_netbuf_srv_fd(nc, sock, srv);
 
     netcon_main_loop(nc);
 
     netcon_free(nc);
+    netbuf_srv_free(srv);
     
     return 0;
 }

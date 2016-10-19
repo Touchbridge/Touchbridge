@@ -61,7 +61,7 @@ typedef struct netbuf_codec_s {
 
 extern const netbuf_codec_t tlv1_codec;
 
-typedef int (netbuf_callback_t)(struct netbuf_s *, void *);
+typedef void (netbuf_callback_t)(struct netbuf_s *, void *);
 
 typedef struct netbuf_s {
     const netbuf_codec_t *codec;    // Codec
@@ -87,5 +87,6 @@ void netbuf_add_msg(netbuf_t *nb, uint8_t type, uint8_t *data, int length);
 int netbuf_send(netbuf_t *nb);
 int netbuf_recv(netbuf_t *nb, uint8_t *data, int size, int *type, int *len);
 int netbuf_decode(netbuf_t *nb, buf_t *buf);
+void netbuf_set_tx_callbacks(netbuf_t *nb, netbuf_callback_t *enable_cb, netbuf_callback_t *disable_cb, void *cb_data);
 
 #endif //NETBUF_H
