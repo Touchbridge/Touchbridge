@@ -249,9 +249,10 @@ static int netbuf_srv_poll_cb(netcon_t *nc, void *cb_data, int fd, short revents
             if (srv->close_cb != NULL) {
                 srv->close_cb(cli);
             }
-            // Remove client from server's list. We have to do some pointer
-            // arithmetic to get index.
-            g_array_remove_index(srv->clients, cli - (netbuf_cli_t *)srv->clients->data);
+            // Remove client from server's list. g_ptr_array_remove()
+            // will remove first (hopefully only) occurrance of cli
+            // in array. 
+            g_ptr_array_remove(srv->clients, cli);
             
         } else {
             while (netbuf_decode(cli->nb, &buf) > 0) {
@@ -277,9 +278,8 @@ static int netbuf_srv_accept_cb(netcon_t *nc, void *cb_data, int fd, short reven
     netbuf_srv_t *srv = cb_data;
 
     // Add an empty netbuf_cli_t to end of client array and get pointer to it
-    netbuf_cli_t tmp;
-    g_array_append_val(srv->clients, tmp);
-    netbuf_cli_t *cli =  &g_array_index(srv->clients, netbuf_cli_t, srv->clients->len-1);
+    netbuf_cli_t *cli = g_new(netbuf_cli_t, 1);
+    g_ptr_array_add(srv->clients, cli);
 
     // Get a new netbuf and give it a fake socket number as we
     // don't know it until after accept.
@@ -311,6 +311,13 @@ static int netbuf_srv_accept_cb(netcon_t *nc, void *cb_data, int fd, short reven
     return 0;
 }
 
+void netbuf_cli_free(void *data)
+{
+    netbuf_cli_t *cli = data;
+    netbuf_free(cli->nb);
+    g_free(data);
+}
+
 netbuf_srv_t *netbuf_srv_new(netbuf_cli_fn_t *accept_cb, netbuf_cli_rd_fn_t *read_cb, netbuf_cli_fn_t *close_cb, void *cb_data)
 {
     netbuf_srv_t *srv = g_new(netbuf_srv_t, 1);
@@ -318,18 +325,26 @@ netbuf_srv_t *netbuf_srv_new(netbuf_cli_fn_t *accept_cb, netbuf_cli_rd_fn_t *rea
     srv->read_cb = read_cb;
     srv->close_cb = close_cb;
     srv->cb_data = cb_data;
-    srv->clients = g_array_new(FALSE, FALSE, sizeof(netbuf_cli_t));
+    srv->clients = g_ptr_array_new_with_free_func(netbuf_cli_free);
     return srv;
 }
 
 void netcon_add_netbuf_srv_fd(netcon_t *nc, int fd, netbuf_srv_t *srv)
 {
-    netcon_add_fd(nc, fd, POLLIN | POLLOUT, netbuf_srv_accept_cb, srv);
+    netcon_add_fd(nc, fd, POLLIN, netbuf_srv_accept_cb, srv);
 }
 
 void netbuf_srv_free(netbuf_srv_t *srv)
 {
-    g_array_free(srv->clients, TRUE);
+    g_ptr_array_free(srv->clients, TRUE);
     g_free(srv);
 }
 
+void netbuf_srv_forall(netbuf_srv_t *srv, netbuf_iter_fn_t *fn, void *data)
+{
+    if (fn == NULL) return;
+    for (int i = 0; i < srv->clients->len; i++) {
+        netbuf_cli_t *cli = g_ptr_array_index(srv->clients, i);
+        fn(cli, data);
+    }
+}

@@ -47,7 +47,7 @@ typedef struct netbuf_srv_s {
     netbuf_cli_fn_t *close_cb;
     netbuf_cli_rd_fn_t *read_cb;
     void *cb_data;
-    GArray *clients;    // Array of netbuf_cli_t
+    GPtrArray *clients;  // Array of pointers to netbuf_cli_t
 } netbuf_srv_t;
 
 int netcon_sock_listen(char *net_addr, unsigned short port);
@@ -67,5 +67,8 @@ unsigned short netcon_addr_port(netcon_addr_t *a);
 netbuf_srv_t *netbuf_srv_new(netbuf_cli_fn_t *accept_cb, netbuf_cli_rd_fn_t *read_cd, netbuf_cli_fn_t *close_cb, void *cb_data);
 void netcon_add_netbuf_srv_fd(netcon_t *nc, int fd, netbuf_srv_t *srv);
 void netbuf_srv_free(netbuf_srv_t *srv);
+
+typedef void (netbuf_iter_fn_t)(netbuf_cli_t *cli, void *data);
+void netbuf_srv_forall(netbuf_srv_t *srv, netbuf_iter_fn_t *fn, void *data);
 
 #endif //NETSOCK_H
