@@ -180,6 +180,16 @@ void netcon_free(netcon_t *nc)
     free(nc);
 }
 
+int netcon_find_fd(netcon_t *nc, int fd)
+{
+    for (int i = 0; i < nc->pollfds->len; i++) {
+        struct pollfd *pfd = &g_array_index(nc->pollfds, struct pollfd, i);
+        if (pfd->fd == fd) return i;
+    }
+    return -1;
+}
+
+
 char *netcon_addr_to_str(netcon_addr_t *a)
 {
     int len = INET_ADDRSTRLEN;
@@ -204,7 +214,9 @@ unsigned short netcon_addr_port(netcon_addr_t *a)
  */
 void netcon_tx_enable_cb(netbuf_t *nb, void *data)
 {
-    struct pollfd *pfd = data;
+    netcon_t *nc = data;
+    int i = netcon_find_fd(nc, nb->socket);
+    struct pollfd *pfd = &g_array_index(nc->pollfds, struct pollfd, i);
     pfd->events |= POLLOUT;
 }
 
@@ -213,7 +225,9 @@ void netcon_tx_enable_cb(netbuf_t *nb, void *data)
  */
 void netcon_tx_disable_cb(netbuf_t *nb, void *data)
 {
-    struct pollfd *pfd = data;
+    netcon_t *nc = data;
+    int i = netcon_find_fd(nc, nb->socket);
+    struct pollfd *pfd = &g_array_index(nc->pollfds, struct pollfd, i);
     pfd->events &= ~POLLOUT;
 }
 
@@ -244,14 +258,14 @@ static int netbuf_srv_poll_cb(netcon_t *nc, void *cb_data, int fd, short revents
         if (ret == 0) {
             netcon_remove_fd(nc, fd);
             close(fd);
-            netbuf_free(cli->nb);
             // Call user's close callback
             if (srv->close_cb != NULL) {
                 srv->close_cb(cli);
             }
             // Remove client from server's list. g_ptr_array_remove()
             // will remove first (hopefully only) occurrance of cli
-            // in array. 
+            // in array.
+            // Note that this also frees our netbuf via it's free_fn
             g_ptr_array_remove(srv->clients, cli);
             
         } else {
@@ -300,13 +314,8 @@ static int netbuf_srv_accept_cb(netcon_t *nc, void *cb_data, int fd, short reven
         srv->accept_cb(cli);
     }
 
-    // Get pointer to our new pollfd in nc. This is simple as netcon_accept_fd
-    // has just appended it, so it'll be the last element in the array.
-    struct pollfd *pfd = &g_array_index(nc->pollfds, struct pollfd, nc->pollfds->len-1);
-
     // Set tx en/dis-able callbacks for netbuf
-    netbuf_set_tx_callbacks(cli->nb, netcon_tx_enable_cb, netcon_tx_disable_cb, pfd);
-    
+    netbuf_set_tx_callbacks(cli->nb, netcon_tx_enable_cb, netcon_tx_disable_cb, nc);
 
     return 0;
 }

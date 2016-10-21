@@ -65,7 +65,7 @@ int accept_callback(netcon_t *nc, void *cb_data, int fd, short revents)
 
 void echo(netbuf_cli_t *cli, void *data)
 {
-    netbuf_add_msg(cli->nb, 1, (uint8_t *)"ACK\n", 4);
+    netbuf_add_msg(cli->nb, 1, data, strlen(data));
 }
 
 void nb_read_cb(netbuf_cli_t *cli, int type, int len, uint8_t *data)
@@ -74,7 +74,7 @@ void nb_read_cb(netbuf_cli_t *cli, int type, int len, uint8_t *data)
     printf("Got %d byte TVL message of type %d\n", len, type);
     if (type == 1) {
         fwrite(data, len, 1, stdout);
-        netbuf_srv_forall(cli->srv, echo, NULL);
+        netbuf_srv_forall(cli->srv, echo, data);
     }
 }
 
