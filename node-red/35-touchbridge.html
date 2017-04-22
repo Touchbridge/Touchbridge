@@ -21,6 +21,105 @@
   limitations under the License.
 -->
 
+<!-- Touchbridge HCO Diagnostics Input node - dialog edit template -->
+<script type="text/x-red" data-template-name="TBG-HCO-DIAG">
+    <div class="form-row">
+        <label for="node-input-card"><i class="fa fa-circle"></i> Card</label>
+        <select type="text" id="node-input-card" style="width: 250px;">
+            <option value='' disabled selected style='display:none;'>select card</option>
+         </select>
+    </div>
+    <div class="form-row">
+        <label for="node-input-pin"><i class="fa fa-circle"></i> Pin</label>
+        <select type="text" id="node-input-pin" style="width: 250px;">
+            <option value='' disabled selected style='display:none;'>select pin</option>
+            <option value="1">Channel 1 Current</option>
+            <option value="2">Channel 2 Current</option>
+            <option value="3">Channel 3 Current</option>
+            <option value="4">Channel 4 Current</option>
+            <option value="5">Channel 5 Current</option>
+            <option value="6">Channel 6 Current</option>
+            <option value="7">Channel 7 Current</option>
+            <option value="8">Channel 8 Current</option>
+            <option value="9">Input Voltage</option>
+            <option value="10">us Voltage</option>
+            <option value="11">Braking Resistor Temperature</option>
+         </select>
+    </div>
+    <br/>
+    <div class="form-row">
+        <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+        <input type="text" id="node-input-name" placeholder="Name">
+    </div>
+</script>
+
+<!-- Touchbridge HCO Diagnostics Input node - help text -->
+<script type="text/x-red" data-help-name="TBG-HCO-DIAG">
+    <p>Touchbridge HCO diagnoistic input node.</p>
+    <p>When any message is received, the selected analogue diagnostic value is polled and
+       the result is returned as a floating point number in the output payload.</p>
+    <p>The <b>msg.topic</b> is set to <i>tbg/{the pin number}</i></p>
+    </script>
+
+<!-- Touchbridge HCO Diagnostics Input node - node definition -->
+<script type="text/javascript">
+    RED.nodes.registerType('TBG-HCO-DIAG',{
+        category: 'Touchbridge',
+        color:"#c6dbef",
+        defaults: {
+            name: { value:"" },
+            pin: { value:"",required:true,validate:RED.validators.number() },
+            card: { value:"",required:true },
+        },
+        inputs:1,
+        outputs:1,
+        icon: "touchbridge_node_icon.png",
+        label: function() {
+            return this.name||"Card "+this.card+", Pin: "+this.pin ;
+        },
+        labelStyle: function() {
+            return this.name?"node_label_italic":"";
+        },
+        oneditprepare: function() {
+            var pinnow = this.pin;
+            var cardnow = this.card;
+            var boards = [];
+            var pinsInUse = {};
+            $.getJSON('tbg-boards/'+this.id,function(data) {
+                boards = data;
+                for (var key in data) {
+                    var brd = data[key];
+                    if (brd.product.id == 'TBG-HCO') {
+                        $('#node-input-card').append($("<option></option>").attr("value",brd.id).text(brd.id));
+                    }
+                }
+            });
+
+            $.getJSON('rpi-pins/'+this.id,function(data) {
+                pinsInUse = data || {};
+            });
+
+            $("#node-input-pin").change(function() {
+                var pinnew = $("#node-input-pin").val();
+                if ((pinnew) && (pinnew !== pinnow)) {
+                    if (pinsInUse.hasOwnProperty(pinnew)) {
+                        RED.notify("Pin "+pinnew+" already in use.","info");
+                    }
+                    pinnow = pinnew;
+                }
+            });
+            $("#node-input-card").change(function() {
+                var cardnew = $("#node-input-card").val();
+                if ((cardnew) && (cardnew !== cardnow)) {
+                    cardnow = cardnew;
+                }
+            });
+
+        }
+    });
+</script>
+
+<!-- Touchbridge Input node - dialog edit template -->
 <script type="text/x-red" data-template-name="TBG-INPUT">
     <div class="form-row">
         <label for="node-input-card"><i class="fa fa-circle"></i> Card</label>
@@ -42,28 +141,21 @@
             <option value="8">8</option>
          </select>
     </div>
-    <div class="form-row">
-        <label for="node-input-intype"><i class="fa fa-level-up"></i> Resistor ?</label>
-        <select type="text" id="node-input-intype" style="width: 150px;">
-        <option value="tri">none</option>
-        <option value="up">pullup</option>
-        <option value="down">pulldown</option>
-        </select>
-    </div>
     <br/>
     <div class="form-row">
         <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
         <input type="text" id="node-input-name" placeholder="Name">
     </div>
-    <div class="form-tips">Tip: Only Digital Input is supported - input must be 0 or 1.</div>
 </script>
 
+<!-- Touchbridge Input node - help text -->
 <script type="text/x-red" data-help-name="TBG-INPUT">
     <p>Touchbridge Input node.</p>
     <p>Generates a <b>msg.payload</b> with either a 0 or 1 depending on the state of the input pin.</p>
     <p>The <b>msg.topic</b> is set to <i>tbg/{the pin number}</i></p>
     </script>
 
+<!-- Touchbridge Input node - node definition -->
 <script type="text/javascript">
     RED.nodes.registerType('TBG-INPUT',{
         category: 'Touchbridge',

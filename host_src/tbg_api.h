@@ -69,6 +69,7 @@ void tbg_node_info_free(tbg_node_info_t *node);
 
 int tbg_dout(tbg_port_t *port, uint32_t value, uint32_t mask);
 int tbg_aout(tbg_port_t *port, int pin, int value);
+int tbg_ain(tbg_port_t *port, int pin, int16_t *result);
 
 int tbg_port_conf_write(tbg_port_t *port, uint8_t cmd, uint8_t *conf_data, int len);
 int tbg_port_wait_msg(tbg_port_t *port, int msg_type, int timeout, tbg_msg_t *msg);

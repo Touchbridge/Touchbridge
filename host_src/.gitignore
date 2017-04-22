@@ -2,4 +2,3 @@
 build
 tmp
 *.o
-.*.swp

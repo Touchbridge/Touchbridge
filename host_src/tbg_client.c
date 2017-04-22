@@ -305,13 +305,76 @@ void aout_usage(char *name)
 
 int ain_cmd(int argc, char **argv, tbg_socket_t *tsock)
 {
+    int addr = atoi(argv[1]);
+    int portnum = 12;
+    tbg_port_t *port = tbg_port_open(tsock, addr, portnum);
+    int pin = atoi(argv[2]);
+    pin--;
+
+    int16_t result;
+
+    int ret = tbg_ain(port, pin, &result);
+
+    if (ret > 0) {
+        printf("%d\n", result);
+    }
+
+    tbg_port_close(port);
     return 0;
 }
 
 void ain_usage(char *name)
 {
-    printf("Not implemented yet\n");
     printf("usage: %s node pin\n", name);
+}
+
+int ain_stdio_cmd(int argc, char **argv, tbg_socket_t *tsock)
+{
+    int addr = atoi(argv[1]);
+    int portnum = 12;
+    tbg_port_t *port = tbg_port_open(tsock, addr, portnum);
+    int pin_cmdline, pin_stdin;
+    int16_t result;
+
+    if (argc > 2) {
+        // Get channel number from cmd line
+        pin_cmdline = atoi(argv[2]) - 1;
+    } else {
+        pin_cmdline = -1;
+    }
+
+    if (pin_cmdline < 0) {
+        // Get channel number from stdin.
+        int ret = get_input(tsock, 1, &pin_stdin);
+        while (!feof(stdin)) {
+            if (ret > 0) {
+                if (tbg_ain(port, pin_stdin, &result) > 0) {
+                    printf("%d\n", result);
+                }
+            } else {
+                fprintf(stderr, "Expected numeric value on stdin (ctrl-d to exit.)\n");
+            }
+            ret = get_input(tsock, 1, &pin_stdin);
+        }
+    } else {
+        get_input(tsock, 0, NULL);
+        while (!feof(stdin)) {
+            if (tbg_ain(port, pin_cmdline, &result) > 0) {
+                printf("%d\n", result);
+                fflush(stdout);
+            }
+            get_input(tsock, 0, NULL);
+        }
+    }
+
+
+    tbg_port_close(port);
+    return 0;
+}
+
+void ain_stdio_usage(char *name)
+{
+    printf("usage: %s node [pin]\n", name);
 }
 
 int tbg_cmd(int argc, char **argv, tbg_socket_t *tsock)
@@ -448,6 +511,7 @@ const command_t commands[] = {
     {  "din", din_cmd, 2, din_usage },
     {  "aout", aout_cmd, 2, aout_usage },
     {  "ain", ain_cmd, 2, ain_usage },
+    {  "ain_stdio", ain_stdio_cmd, 1, ain_stdio_usage },
     {  "tbg", tbg_cmd, 2, tbg_usage },
     {  "adisc", adisc2_cmd, 0, adisc_usage },
     {  "adisc2", adisc2_cmd, 0, adisc_usage },

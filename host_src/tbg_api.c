@@ -143,14 +143,13 @@ int tbg_request(tbg_socket_t *tsock, int node, int port, uint8_t *data, int len,
 }
 
 /*
- * Send a Touchbridge request. Optionally wait for a response if
- * resp is not NULL.
+ * Send a Touchbridge request. Waits for a response if resp is not NULL.
  */
-int tbg_port_request(tbg_port_t *port, uint8_t *data, int len)
+int tbg_port_req_resp(tbg_port_t *port, uint8_t *data, int len, tbg_msg_t *resp)
 {
     int ret;
 
-    tbg_msg_t req, resp;
+    tbg_msg_t req;
 
     // Set-up ID
     req.id = 0;
@@ -173,7 +172,17 @@ int tbg_port_request(tbg_port_t *port, uint8_t *data, int len)
         ERROR("send_msg");
     }
 
-    return tbg_wait_response2(port->tsock, port->timeout, &resp, port->addr, port->port);
+    return tbg_wait_response2(port->tsock, port->timeout, resp, port->addr, port->port);
+}
+
+/*
+ * Send a Touchbridge request. Waits for a response and discards it.
+ */
+int tbg_port_request(tbg_port_t *port, uint8_t *data, int len)
+{
+    tbg_msg_t resp;
+
+    return tbg_port_req_resp(port, data, len, &resp);
 }
 
 
@@ -186,11 +195,12 @@ int tbg_port_request(tbg_port_t *port, uint8_t *data, int len)
 int tbg_wait_response(tbg_socket_t *tsock, int timeout, tbg_msg_t *resp)
 {
     char buf[RESP_BUF_SIZE+1];
+    int ret = 0;
 
     PRINTD(2, "    %s: called with timeout %d\n", __FUNCTION__, timeout);
     zmq_pollitem_t items [] = { { .socket = tsock->zsocket,  .fd = 0, .events = ZMQ_POLLIN, .revents = 0 } };
-    int ret = zmq_poll (items, 1, timeout);
-    SYSERROR_IF(ret < 0, "zmq_poll");
+    int zret = zmq_poll (items, 1, timeout);
+    SYSERROR_IF(zret < 0, "zmq_poll");
     if (items [0].revents & ZMQ_POLLIN) {
         int len = zmq_recv (tsock->zsocket, buf, RESP_BUF_SIZE, 0);
         if (len >= RESP_BUF_SIZE) ERROR("response buffer overflow");
@@ -205,15 +215,17 @@ int tbg_wait_response(tbg_socket_t *tsock, int timeout, tbg_msg_t *resp)
                 } else {
                     WARNING("Touchbridge error: %s", tbg_error_strings[err_code]);
                 }
+                ret = -1;
+            } else {
+                ret = 1;
             }
             if (debug_level >= 2) {
                 fprintf(stderr, "    response: ");
                 tbg_msg_dump(resp);
             }
         }
-        return 1;
     }
-    return 0;
+    return ret;
 }
 
 /*
@@ -252,7 +264,7 @@ int tbg_wait_response2(tbg_socket_t *tsock, int timeout, tbg_msg_t *resp, int ad
         if ( ((addr >= 0) ? TBG_MSG_GET_SRC_ADDR(resp) == addr : 1)
           && ((port >= 0) ? TBG_MSG_GET_SRC_PORT(resp) == port : 1) ) {
             PRINTD(2, "  %s: matched addr %d, port %d\n", __FUNCTION__, TBG_MSG_GET_SRC_ADDR(resp), TBG_MSG_GET_SRC_PORT(resp) );
-            return 1;
+            return ret;
         }
         gettimeofday(&t_now, NULL);
         timersub(&t_timeout, &t_now, &dt);
@@ -739,6 +751,25 @@ int tbg_aout(tbg_port_t *port, int pin, int value)
     PRINTD(2, "aout: addr %d, port %d, pin %d, value %d\n", port->addr, port->port, pin, value);
     return tbg_port_request(port, (uint8_t *)req_data, sizeof(req_data));
 }
+
+int tbg_ain(tbg_port_t *port, int pin, int16_t *result)
+{
+    uint8_t req_data[2];
+    req_data[0] = pin;
+    req_data[1] = 1; // Request just one channel
+
+    PRINTD(2, "ain: addr %d, port %d, pin %d\n", port->addr, port->port, pin);
+
+    tbg_msg_t resp;
+
+    int ret = tbg_port_req_resp(port, (uint8_t *)req_data, sizeof(req_data), &resp);
+
+    if (ret)
+        *result = resp.data16[0];
+
+    return ret;
+}
+
 
 int tbg_port_conf_write(tbg_port_t *port, uint8_t cmd, uint8_t *conf_data, int len)
 {

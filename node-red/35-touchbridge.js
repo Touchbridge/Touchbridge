@@ -43,7 +43,7 @@ module.exports = function (RED) {
         if (RED.settings.verbose) { node.log("state: " + data); }
     }
 
-    function check_value(input) {
+    function check_bool_value(input) {
         if (input === "true") { input = true; }
         if (input === "false") { input = false; }
         var value = Number(input);
@@ -173,6 +173,93 @@ module.exports = function (RED) {
     }
 
     /*
+     * Touchbridge HCO Diagnostics Input
+     */
+    function TBG_HCO_DIAG_Node(n) {
+        RED.nodes.createNode(this,n);
+        this.addr = undefined;
+        this.card = n.card;
+        this.pin = n.pin;
+        this.tbg_server = tbg_server;
+        var node = this;
+        node.closing = false;
+        node.log(RED._("HCO DIAG: card:" + this.card + " pin: " + this.pin));
+
+        // This function is a callback, called when messages arrive at our node
+        function inputlistener(msg) {
+            var value = Number(msg.payload);
+
+            node.log(RED._("Message in value: " + value));
+
+            if (node.child !== null) {
+                // Write message payload to stdin of tbg_client process
+                node.child.stdin.write(value + "\n");
+            } else {
+                node.log(RED._("Child is null"));
+            }
+        }
+
+
+        // Node Initialisation
+        if (tbg_valid_params(node)) {
+
+            // Get address from id
+            for (var key in boards) {
+                var brd = boards[key];
+                if (brd.id == node.card) {
+                    node.addr = brd.addr;
+                }
+            }
+
+            spawn_client(node, 'ain_stdio', [node.addr,node.pin]);
+
+            node_running(node);
+
+            // Callback for data comming from child process's stdout
+            node.child.stdout.on('data', function (chunk) {
+                // child.stdout is a Stream. The on('data'...) callback
+                // gets objects, not strings, which is neat but baffling.
+                // We need to convert it to a string then split on newline
+                // as it seems we can get a 'chunk' which contains several
+                // lines.
+                var data = chunk.toString();
+                node.log(RED._("Got stdin line: " + data));
+                var lines = data.split('\n');
+                // Send a message for each line so we don't miss state
+                // updates from the input node. We only go to length-1 since
+                // split() produces an empty string for inputs which end
+                // with a separator character (which \n-terminated lines do!)
+                for (var i = 0; i < lines.length-1; i++) {
+                    var line = lines[i].trim();
+                    var value = Number(line);
+                    // Number() will return NaN if it doesn't recognise the
+                    // supplied string, so we need to check for this.
+                    if (!isNaN(value) && !node.closing) {
+                        // FIXME: need to handle bus volts & temp conversions for ch's 9-11
+                        value = 3.3 * (value-2048) / 2048; // Convert ADC counts to volts
+                        value = value / 0.11; // Convert to amps
+                        node.send({ topic:"tbg/"+node.pin, payload:value });
+                        update_status(node, value);
+                    }
+                }
+            });
+
+            node.child.stderr.on('data', function (data) { child_stderr(node, data); });
+
+            node.child.on('close', function (code) { child_close(node, code); });
+
+            node.child.on('error', function (err) { child_error(node, err); });
+            //
+            // Register input message callback
+            node.on("input", inputlistener);
+
+
+        }
+
+        node.on("close", function(done) { node_close(node, done); });
+
+    }
+    /*
      * Touchbridge Input
      */
     function TBG_INPUT_Node(n) {
@@ -258,7 +345,7 @@ module.exports = function (RED) {
 
         // This function is a callback, called when messages arrive at our node
         function inputlistener(msg) {
-            var output_value = check_value(msg.payload);
+            var output_value = check_bool_value(msg.payload);
 
             write_output(node, output_value);
         }
@@ -273,7 +360,7 @@ module.exports = function (RED) {
             spawn_client(node, 'dout', [node.addr,node.pin]);
 
             // Set initial state of output
-            var output_value = check_value(node.initial_level);
+            var output_value = check_bool_value(node.initial_level);
             if (RED.settings.verbose) { node.log("TBG-HSO Initial state: " + output_value); }
             write_output(node, output_value);
 
@@ -311,7 +398,7 @@ module.exports = function (RED) {
 
         // This function is a callback, called when messages arrive at our node
         function inputlistener(msg) {
-            var output_value = check_value(msg.payload);
+            var output_value = check_bool_value(msg.payload);
 
             if (msg.topic.toLowerCase() == 'pwm') {
                 write_hco_pwm(node, output_value);
@@ -329,15 +416,16 @@ module.exports = function (RED) {
             spawn_client(node, '-i', '');
 
             // Set initial enable state of output
-            var enable = check_value(node.initial_enable);
+            var enable = check_bool_value(node.initial_enable);
             write_hco_enable(node, enable);
 
             // Set initial PWM state of output
-            var pwm = check_value(node.initial_pwm);
+            var pwm = check_bool_value(node.initial_pwm);
             write_hco_pwm(node, pwm);
 
             node_running(node);
 
+            // Register input message callback
             node.on("input", inputlistener);
 
             node.child.stderr.on('data', function (data) { child_stderr(node, data); });
@@ -382,6 +470,7 @@ module.exports = function (RED) {
             RED.nodes.registerType("TBG-INPUT", TBG_INPUT_Node);
             RED.nodes.registerType("TBG-HSO",TBG_HSO_Node);
             RED.nodes.registerType("TBG-HCO",TBG_HCO_Node);
+            RED.nodes.registerType("TBG-HCO-DIAG",TBG_HCO_DIAG_Node);
         }
     });
 
