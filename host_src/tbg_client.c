@@ -224,6 +224,7 @@ void dout_cmd2_usage(char *name)
 int din_cmd(int argc, char **argv, tbg_socket_t *tsock)
 {
     tbg_msg_t msg;
+    int ret;
 
     int addr = atoi(argv[1]);
     int portnum = 8;
@@ -246,13 +247,15 @@ int din_cmd(int argc, char **argv, tbg_socket_t *tsock)
     tbg_port_conf_write(port, TBG_PORTCONF_CMD_DIN_EV_DEBOUNCE_TIME, (uint8_t *)&debounce_time, sizeof(debounce_time));
 
     while (1) {
-        tbg_port_wait_msg(port, TBG_MSG_TYPE_IND, TBG_TIMEOUT_FOREVER, &msg);
-        uint32_t events = msg.data32[0];
-        uint32_t state = msg.data32[1];
-        if (events & mask) {
-            //printf("mask = 0x%08X, events = 0x%08X, state = 0x%08X\n", mask, events, state);
-            printf("%c\n", (state & mask) ? '1' : '0');
-            fflush(stdout);
+        ret = tbg_port_wait_msg(port, TBG_MSG_TYPE_IND, TBG_TIMEOUT_FOREVER, &msg);
+        if (ret) {
+            uint32_t events = msg.data32[0];
+            uint32_t state = msg.data32[1];
+            if (events & mask) {
+                //printf("mask = 0x%08X, events = 0x%08X, state = 0x%08X\n", mask, events, state);
+                printf("%c\n", (state & mask) ? '1' : '0');
+                fflush(stdout);
+            }
         }
     }
     tbg_port_close(port);

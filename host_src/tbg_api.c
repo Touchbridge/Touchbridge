@@ -280,7 +280,7 @@ int tbg_port_wait_msg(tbg_port_t *port, int msg_type, int timeout, tbg_msg_t *ms
 
     PRINTD(2, "  %s: waiting for addr %d, port %d, timeout %d\n", __FUNCTION__, port->addr, port->port, timeout);
     ret = tbg_wait_response(port->tsock, timeout, msg);
-    while (ret && timercmp(&t_now, &t_timeout, < ) ) {
+    while (ret && (timeout < 0 || timercmp(&t_now, &t_timeout, < )) ) {
         if ( (TBG_MSG_GET_SRC_ADDR(msg) == port->addr)
           && ((msg_type >= 0) ? TBG_MSG_GET_TYPE(msg) == msg_type : 1)
           && (TBG_MSG_GET_SRC_PORT(msg) == port->port) ) {
@@ -290,7 +290,7 @@ int tbg_port_wait_msg(tbg_port_t *port, int msg_type, int timeout, tbg_msg_t *ms
         gettimeofday(&t_now, NULL);
         timersub(&t_timeout, &t_now, &dt);
         int timeleft = dt.tv_sec * 1000 + dt.tv_usec / 1000; // Convert to ms
-        ret = tbg_wait_response(port->tsock, timeleft, msg);
+        ret = tbg_wait_response(port->tsock, (timeout < 0) ? -1 : timeleft, msg);
     }
     PRINTD(2, "  %s: timeout\n", __FUNCTION__);
     return 0;
