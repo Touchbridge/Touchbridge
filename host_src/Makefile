@@ -23,14 +23,14 @@ INSTFILES=tbg_client tbg_server
 UNAME_S := $(shell uname -s)
 ifeq ($(UNAME_S),Linux)
     #CPPFLAGS += -D LINUX
-    TARGETS=tbg_server tbg_client
+    TARGETS=tbg_server tbg_client netbuf_srv netbuf_cli
     LRT=-lrt
 endif
 ifeq ($(UNAME_S),Darwin)
     #CPPFLAGS += -D OSX
     CPPFLAGS += -I/usr/local/include
     LDFLAGS += -L/usr/local/lib
-    TARGETS=tbg_client
+    TARGETS=tbg_client netbuf_srv netbuf_cli
 endif
 
 CPPFLAGS_GTK = `pkg-config --cflags glib-2.0`
@@ -38,16 +38,21 @@ CPPFLAGS += $(CPPFLAGS_GTK)
 LOADLIBES_GTK = `pkg-config --libs glib-2.0`
 LOADLIBES += $(LOADLIBES_GTK)
 LOADLIBES += -lzmq -lczmq $(LRT)
-CFLAGS = -Wall -g -std=c99 -O
+#CFLAGS = -Wall -g -std=c99 -O
+CFLAGS = -Wall -g -std=c99
 
 # Generate dependency information
 CFLAGS += -MMD -MP -MF .dep/$(@F).d
 
 all: $(TARGETS)
 
-tbg_server: tbg_server.o rpi_io.o rpi_int.o tbg_rpi.o tbg_util.o
+tbg_server: tbg_server.o rpi_io.o rpi_int.o tbg_rpi.o tbg_util.o netbuf.o netcon.o
 
-tbg_client: tbg_client.o tbg_util.o tbg_api.o
+tbg_client: tbg_client.o tbg_util.o tbg_api.o netbuf.o netcon.o
+
+netbuf_srv: netbuf_srv.o netbuf.o server_socket.o netcon.o
+
+netbuf_cli: netbuf_cli.o netbuf.o netcon.o
 
 
 clean:

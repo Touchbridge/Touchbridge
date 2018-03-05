@@ -22,7 +22,6 @@
 #define _BSD_SOURCE
 #define _GNU_SOURCE
 
-#include <zmq.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -47,39 +46,32 @@
 
 char *tbg_error_strings[] = TBG_ERROR_STRINGS;
 
-static void *zcontext; // zmq context
-
 void tbg_init(void)
 {
-    zcontext = zmq_ctx_new ();
 }
 
 tbg_socket_t *tbg_open(char *server_uri)
 {
-    int ret;
     tbg_socket_t *tsock = g_new(tbg_socket_t, 1);
 
     tsock->timeout = TBG_DEFAULT_TIMEOUT;
 
-    tsock->zsocket = zmq_socket(zcontext, ZMQ_DEALER);
-    if (tsock->zsocket == NULL) {
+	tsock->sock = netcon_sock_connect_uri(server_uri);
+
+    if (tsock->sock < 0) {
         g_free(tsock);
         return NULL;
     }
 
-    ret = zmq_connect (tsock->zsocket, server_uri);
-    if (ret != 0) {
-        zmq_close(tsock->zsocket);
-        g_free(tsock);
-        return NULL;
-    }
+    tsock->nb = netbuf_new(tsock->sock, &tlv1_codec);
 
     return tsock;
 }
 
 void tbg_close(tbg_socket_t *tsock)
 {
-    zmq_close(tsock->zsocket);
+    netbuf_free(tsock->nb);
+    netcon_sock_close(tsock->sock);
     g_free(tsock);
 }
 
@@ -95,10 +87,11 @@ int send_msg(tbg_socket_t *tsock, tbg_msg_t *msg)
         tbg_msg_dump(msg);
     }
 
-    // Send zmq message
-    ret = zmq_send(tsock->zsocket, hex, TBG_HEX_MSG_SIZE, 0);
+    // Send message
+    netbuf_add_msg(tsock->nb, 1, (uint8_t *)hex, TBG_HEX_MSG_SIZE);
+    ret = netbuf_send(tsock->nb);
     if (ret < 0) {
-        WARNING("zmq_send: %s\n", zmq_strerror(errno));
+        WARNING("netbuf_send: %s\n", strerror(errno));
     }
     return ret;
 }
@@ -185,19 +178,32 @@ int tbg_port_request(tbg_port_t *port, uint8_t *data, int len)
  */
 int tbg_wait_response(tbg_socket_t *tsock, int timeout, tbg_msg_t *resp)
 {
-    char buf[RESP_BUF_SIZE+1];
+    unsigned char recv_buf[1024];
+    buf_t buf;
+
+    buf_init_from_static(&buf, recv_buf, 1024);
 
     PRINTD(2, "    %s: called with timeout %d\n", __FUNCTION__, timeout);
-    zmq_pollitem_t items [] = { { .socket = tsock->zsocket,  .fd = 0, .events = ZMQ_POLLIN, .revents = 0 } };
-    int ret = zmq_poll (items, 1, timeout);
-    SYSERROR_IF(ret < 0, "zmq_poll");
-    if (items [0].revents & ZMQ_POLLIN) {
-        int len = zmq_recv (tsock->zsocket, buf, RESP_BUF_SIZE, 0);
-        if (len >= RESP_BUF_SIZE) ERROR("response buffer overflow");
-        buf[len] = '\0';
-        PRINTD(4, "response: len=%d, buf=\"%s\"\n", len, buf);
+    struct pollfd items[] = { { .fd = tsock->sock, .events = POLLIN, .revents = 0 } };
+    int ret = poll(items, 1, timeout);
+    SYSERROR_IF(ret < 0, "poll");
+    //printf("poll: %d, item 0: %X\n", ret, items[0].revents);
+    if (items[0].revents & POLLIN) {
+        int ret = buf_recv(tsock->sock, &buf, 0);
+        if (ret < 0) {
+            SYSERROR("%s: read from %d", __FUNCTION__, tsock->sock);
+        }
+        while (netbuf_decode(tsock->nb, &buf) > 0) {
+            if (NETBUF_GET_TYPE(tsock->nb) == 1) {
+                break;
+            }
+        }
+        int len = NETBUF_GET_LENGTH(tsock->nb);
+        char *data = (char *)NETBUF_GET_DATA(tsock->nb);
+
+        PRINTD(4, "response: len=%d, data=\"%s\"\n", len, data);
         if (resp != NULL) {
-            tbg_msg_from_hex(resp, buf);
+            tbg_msg_from_hex(resp, data);
             if (TBG_MSG_IS_ERR_RESP(resp)) {
                 uint8_t err_code = resp->data[0];
                 if (err_code >= sizeof(tbg_error_strings)/sizeof(char*)) {

@@ -18,25 +18,22 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-/*
- * Example for using zmq router.
- *
- * J.Macfarlane 2015-08-15
- */
 
 #include <glib.h>
-#include <zmq.h>
-#include <czmq.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <unistd.h>
 #include <string.h>
 #include <assert.h>
 #include <poll.h>
+#include <sys/socket.h>
 #include "debug.h"
 
 #include "rpi_io.h"
 #include "tbg_rpi.h"
+#include "tbg_util.h"
+
+#include "tbg_api.h"
 #include "tbg_util.h"
 
 int debug_level = 0;
@@ -45,14 +42,7 @@ int src_addr = 62;
 
 tbgrpi_t *tpi;
 
-GHashTable *clients;
-int peer_count;
-
-typedef struct ztbg_client_s {
-    unsigned char *zmq_id;
-    int zmq_id_len;
-    uint16_t tbg_addr;
-} ztbg_client_t;
+int accept_socket_on_listener(int sock);
 
 void dumpbuf(unsigned char *buf, int size)
 {
@@ -61,120 +51,40 @@ void dumpbuf(unsigned char *buf, int size)
     }
 }
 
-int get_zmq_events(void *zsocket)
+int send_to_client(int fd, void *cb_data)
 {
-    int ret;
-    int events = 0;
-    size_t events_size = sizeof(events);
+    tbg_msg_t *msg = cb_data;
 
-    ret = zmq_getsockopt(zsocket, ZMQ_EVENTS, &events, &events_size);
-    SYSERROR_IF (ret != 0, "zmq_setsockopt");
-    return events;
-}
+    // Make a TLV message
+    uint8_t buf[sizeof(tbg_msg_t) + 2]; // FIXME: make a #define for header len
+    buf[0] = 1; // FIXME: make a #define for packet type
+    buf[1] = sizeof(tbg_msg_t);
+    memcpy(buf + 2, msg, sizeof(tbg_msg_t));
 
-void ztbg_send_all(void *zsocket, GHashTable *clients, char *payload)
-{
-    GHashTableIter iter;
-    gpointer key, value;
-    g_hash_table_iter_init (&iter, clients);
-    int i;
-    for (i = 0; g_hash_table_iter_next(&iter, &key, &value); i++) {
-        //zmsg_t *resp = zmsg_new();
-        ztbg_client_t *cli = value;
-        //zframe_t *id_frame = zframe_new(cli->zmq_id, cli->zmq_id_len);
-        //zmsg_append(resp, &id_frame);
-        //zframe_t *payload_frame = zframe_dup(payload);
-        //zmsg_append(resp, &payload_frame);
-        //zmsg_send (&resp, zsocket);
+    // send it
+    send(fd, buf, sizeof(tbg_msg_t) + 2, 0);
+    // FIXME: check exit status of send.
 
-        //dumpbuf(cli->zmq_id, cli->zmq_id_len);
-        //printf("\n");
-        // Multi-part message, ad peer address ID.
-        int ret;
-        ret = zmq_send (zsocket, cli->zmq_id, cli->zmq_id_len, ZMQ_SNDMORE);
-        if (ret < 0) {
-            if (errno == EHOSTUNREACH) {
-                if (debug_level >= 1) {
-                    printf("Client %s left.\n", (char *)key);
-                }
-                g_hash_table_iter_remove(&iter);
-            } else {
-                printf("zmq_send: %s\n", zmq_strerror(errno));
-            }
-        } else {
-            //ret = zmq_send (zsocket, "", 0, ZMQ_SNDMORE);
-            //SYSERROR_IF (ret < 0, "zmq_send(delimiter)");
-            int ret2 = zmq_send (zsocket, payload, strlen(payload), 0);
-            if (debug_level >= 3) {
-                printf("    Sent %d:%d bytes to %s\n", ret, ret2, (char *)key);
-            }
-            SYSERROR_IF (ret2 < 0, "zmq_send(payload)");
-        }
-    }
-}
-
-int do_tbg_msg_recv(void *zsocket)
-{
-    tbg_msg_t resp;
-    char resp_str[TBG_MSG_SIZE*2+1];
-
-    int stat = tbgrpi_read_status(tpi);
-    while (stat & TBGRPI_STAT_RX_DATA_AVAIL) {
-        tbgrpi_recv_msg(tpi, &resp);
-        if (debug_level >= 2) {
-            printf("TBG rx: ");
-            tbg_msg_dump(&resp);
-        }
-        tbg_msg_to_hex(&resp, resp_str);
-        ztbg_send_all(zsocket, clients, resp_str);
-        stat = tbgrpi_read_status(tpi);
-    }
     return 0;
 }
 
 int src_port = 0;
 
-int do_zmq_msg_recv(void *zsocket)
+void nb_read_cb(netbuf_cli_t *cli, int type, int len, uint8_t *data)
 {
-    zmsg_t *msg  = zmsg_recv (zsocket);
-    if (!msg) return -1;
-    zframe_t *peer = zmsg_pop (msg);
-    zframe_t *payload = zmsg_pop (msg);
     tbg_msg_t req;
 
-    // Convert peer ID into a hexadecimal string. ZMQ docs are
-    // very coy about how peer IDs are represented internally
-    // so we seem to need to use this technique instead of
-    // using binary keys. Furthermore, a binary key might make
-    // it very difficult to use the GHashtable API.
-    char *client_str = zframe_strhex (peer);
-
-    // Grab a copy of the payload string
-    char *payload_str = zframe_strdup (payload);
-
-    if (debug_level >= 3) {
-        printf ("From %s: '%s' \n", client_str, payload_str);
+    if (debug_level >= 2) {
+        printf("msg recv, type %d, length %d\n", type, len);
     }
 
-    // Check if client is already in our list.
-    // If not, create a new entry.
-    // TODO: use this to generate sender's port address.
-    if (!g_hash_table_contains(clients, client_str)) {
-        ztbg_client_t *client = g_new(ztbg_client_t, 1);
-        client->zmq_id_len = zframe_size(peer);
-        client->zmq_id = g_memdup(zframe_data(peer), client->zmq_id_len);
-        g_hash_table_insert(clients, client_str, client);
-
-        if (debug_level >= 1) {
-            printf("Client %s joined.\n", client_str);
-        }
-    } else {
-        free(client_str);
+    if (type != 1) {
+        return;
     }
 
-    // Convert ASCII hex payload into a Touchbridge message.
-    tbg_msg_from_hex(&req, payload_str);
-    free(payload_str);
+    tbg_msg_from_hex(&req, (char *)data);
+
+    // FIXME: check length is valid
 
     TBG_MSG_SET_SRC_PORT(&req, src_port++);
     TBG_MSG_SET_SRC_ADDR(&req, src_addr);
@@ -193,34 +103,39 @@ int do_zmq_msg_recv(void *zsocket)
         tbg_msg_dump(&req);
     }
     tbgrpi_send_msg(tpi, &req);
-
-/*
-    zmsg_t *resp = zmsg_new();
-    zmsg_append(resp, &peer);
-    zframe_t *words = zframe_from("World 1");
-    zmsg_append(resp, &words);
-    zmsg_send (&resp, zsocket);
-*/
-
-    return 0;
 }
 
-/*
- * We must check for any ZMQ_POLLIN events still remaining
- * after we've serviced first one or else we only ever receive
- * one message as ZMQ's fd doesn't get "reset" and we never
- * get another select/GIOC receive event.
- */
-unsigned int do_zmq_recv_events(void *zsocket)
+void tbg_send_cb(netbuf_cli_t *cli, void *data)
 {
-    int events;
+    tbg_msg_t *msg = data;
+    
+    char hex[TBG_HEX_MSG_SIZE];
+    tbg_msg_to_hex(msg, hex);
+    netbuf_add_msg(cli->nb, 1, (uint8_t *)hex, strlen(hex));
+}
 
-    events = get_zmq_events(zsocket);
-    while (events & ZMQ_POLLIN) {
-        do_zmq_msg_recv(zsocket);
-        events = get_zmq_events(zsocket);
+int intfd;
+
+int int_callback(netcon_t *nc, void *cb_data, int fd, short revents)
+{
+    netbuf_srv_t *srv = cb_data;
+
+    rpi_io_interrupt_clear(intfd);
+
+    tbg_msg_t resp;
+
+    int stat = tbgrpi_read_status(tpi);
+    while (stat & TBGRPI_STAT_RX_DATA_AVAIL) {
+        tbgrpi_recv_msg(tpi, &resp);
+        if (debug_level >= 2) {
+            printf("TBG rx: ");
+            tbg_msg_dump(&resp);
+        }
+        //for_all_clients(send_to_client, &resp);
+        netbuf_srv_forall(srv, tbg_send_cb, &resp);
+        stat = tbgrpi_read_status(tpi);
     }
-    return events;
+    return 0;
 }
 
 char *progname;
@@ -228,7 +143,7 @@ char *progname;
 char *server_addr = "tcp://*:5555";
 
 static GOptionEntry cmd_line_options[] = {
-    { "server",      's', 0, G_OPTION_ARG_STRING, &server_addr, "Set server address to S (e.g. tcp://*:5555)", "S" },
+    { "server",      's', 0, G_OPTION_ARG_STRING, &server_addr, "Set server address to S (e.g. tcp://127.0.0.1:5555)", "S" },
     { "tbg-address", 'a', 0, G_OPTION_ARG_INT,    &src_addr, "Set server's Touchbridge address to A, (range 0-63)", "A" },
     { "debug-level", 'd', 0, G_OPTION_ARG_INT,    &debug_level, "Set debug level to d", "d" },
     { NULL }
@@ -236,9 +151,7 @@ static GOptionEntry cmd_line_options[] = {
 
 int main(int argc, char **argv)
 {
-    int ret;
     progname = argv[0];
-    int optdata;
 
     GError *error = NULL;
     GOptionContext *opt_context = g_option_context_new("- Touchbridge Server");
@@ -269,58 +182,23 @@ int main(int argc, char **argv)
     // Enable ints
     tbgrpi_write_config(tpi, TBGRPI_CONF_RX_DATA_AVAIL_IE | TBGRPI_CONF_RX_OVERFLOW_RESET );
 
-    clients = g_hash_table_new(g_str_hash, g_str_equal);
-
-    int intfd = rpi_io_interrupt_open(TBGRPI_PIN_INT, RPI_IO_EDGE_FALLING);
+    intfd = rpi_io_interrupt_open(TBGRPI_PIN_INT, RPI_IO_EDGE_FALLING);
     rpi_io_interrupt_flush(intfd);
 
-    //  Socket to talk to clients
-    void *context = zmq_ctx_new ();
-    void *zsocket = zmq_socket (context, ZMQ_ROUTER);
-    SYSERROR_IF (zsocket == NULL, "zmq_socket");
-    optdata= 1;
-    ret = zmq_setsockopt (zsocket, ZMQ_ROUTER_MANDATORY, &optdata, sizeof(optdata));
-    SYSERROR_IF (ret != 0, "zmq_setsockopt");
-    ret = zmq_bind (zsocket, server_addr);
-    SYSERROR_IF (ret != 0, "zmq_bind");
+	int sock = netcon_sock_listen_uri("tcp://127.0.0.1:5555");
 
-    // Get ZMQ fd.
-    int zmqfd;
-    size_t zmqfd_size = sizeof(zmqfd);
-    ret = zmq_getsockopt(zsocket, ZMQ_FD, &zmqfd, &zmqfd_size);
-    SYSERROR_IF(ret < 0, "zmq_getsockopt");
+    netcon_t *nc = netcon_new();
 
-    while (1) {
-        // Can't use zmq_poll because it doesn't support POLLPRI
-        struct pollfd items[] = {
-            { .fd = zmqfd, .events = POLLIN  },
-            { .fd = intfd, .events = POLLPRI },
-         };
-        // We need to clear these each time around the loop.
-        items[0].revents = 0;
-        items[1].revents = 0;
-        ret = poll (items, 2, 2000);
-        SYSERROR_IF(ret < 0, "poll");
-        if (items[0].revents & POLLIN) {
-            do_zmq_recv_events(zsocket);
-        } else if (items[1].revents & POLLPRI) {
-            rpi_io_interrupt_clear(intfd);
-            do_tbg_msg_recv(zsocket);
-            /* We need to check for events here because:
-             * "...after calling 'zmq_send' socket may become readable (and
-             * vice versa) without triggering read event on file descriptor."
-             * -https://github.com/zeromq/libzmq/pull/328/files 
-             * This is fucked-up. But the benefits of zmq outweighs such
-             * inconvenience.
-             */
-            do_zmq_recv_events(zsocket);
-        } else {
-            if (debug_level >= 3) {
-                int events = get_zmq_events(zsocket);
-                printf("Waiting. ZMQ Events: %s %s\n", (events & ZMQ_POLLIN) ? "IN" : "", (events & ZMQ_POLLOUT) ? "OUT" : "");
-            }
-        }
-    }
+    // (accept_cb, read_cb, close_cb, cb_data)
+    netbuf_srv_t *srv = netbuf_srv_new(NULL, nb_read_cb, NULL, NULL);
+
+    netcon_add_fd(nc, intfd, POLLPRI, int_callback, srv);
+    netcon_add_netbuf_srv_fd(nc, sock, srv);
+
+    netcon_main_loop(nc, -1);
+
+    netcon_free(nc);
+    netbuf_srv_free(srv);
+    netcon_sock_close(sock);
     return 0;
 }
-

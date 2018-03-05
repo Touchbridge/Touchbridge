@@ -22,7 +22,6 @@
 #define _BSD_SOURCE
 #define _GNU_SOURCE
 
-#include <zmq.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -67,34 +66,37 @@ int get_input(tbg_socket_t *tsock, int nargs, ...)
 {
     char line[MAX_LINE_LENGTH];
     va_list ap;
+    unsigned char recv_buf[1024];
+    buf_t buf;
 
-{
-    char buf[RESP_BUF_SIZE+1];
+    buf_init_from_static(&buf, recv_buf, 1024);
 
     /*
-     * Discard incomming ZMQ messages while waiting for input in stdin.
+     * Discard incomming Touchbridge messages while waiting for input in stdin.
      */
     while (1) {
-        zmq_pollitem_t items [] = {
-            { .socket = tsock->zsocket,  .fd = 0, .events = ZMQ_POLLIN, .revents = 0 },
-            { .socket = NULL,  .fd = STDIN_FILENO, .events = ZMQ_POLLIN, .revents = 0 },
+        struct pollfd items[] = {
+            { .fd = tsock->sock,  .events = POLLIN, .revents = 0 },
+            { .fd = STDIN_FILENO, .events = POLLIN, .revents = 0 },
         };
-        int ret = zmq_poll (items, 2, -1);
-        SYSERROR_IF(ret < 0, "zmq_poll");
-        if (items [0].revents & ZMQ_POLLIN) {
-            // Got a ZMQ message
-            int len = zmq_recv (tsock->zsocket, buf, RESP_BUF_SIZE, 0);
-            if (len >= RESP_BUF_SIZE) ERROR("response buffer overflow");
-            buf[len] = '\0';
-            PRINTD(4, "discarded zmq msg: len=%d, buf=\"%s\"\n", len, buf);
+        int ret = poll(items, 2, -1);
+        SYSERROR_IF(ret < 0, "poll");
+        if (items[0].revents & POLLIN) {
+            // Got a tbg message
+            int ret = buf_recv(tsock->sock, &buf, 0);
+            if (ret < 0) {
+                SYSERROR("%s: read from %d", __FUNCTION__, tsock->sock);
+            }
+            while (netbuf_decode(tsock->nb, &buf) > 0);
+
         }
-        if (items [1].revents & ZMQ_POLLIN) {
+        if (items[1].revents & POLLIN) {
             // Got something on stdin.
             PRINTD(3, "got data on stdin\n");
             break;
         }
     }
-}
+
 
     char * ret = fgets(line, MAX_LINE_LENGTH, stdin);
     if (ret == NULL)
@@ -454,7 +456,7 @@ const command_t commands[] = {
 
 #define N_COMMANDS (sizeof(commands)/sizeof(command_t))
 
-char *server_addr = "tcp://localhost:5555";
+char *server_addr = "tcp://127.0.0.1:5555";
 int iflag = 0;
 
 static GOptionEntry cmd_line_options[] = {

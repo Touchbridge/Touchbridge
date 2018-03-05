@@ -31,8 +31,12 @@
 #define TBG_MSG_TYPE_ANY    (-1)   // For tbg_port_wait_msg() - match any message type
 #define TBG_TIMEOUT_FOREVER (-1)   // For tbg_port_wait_msg() - wait forever
 
+#include "netbuf.h"
+#include "netcon.h"
+
 typedef struct {
-    void *zsocket; // 0MQ socket
+    int sock;
+    netbuf_t *nb;
     int timeout;
 } tbg_socket_t;
 
