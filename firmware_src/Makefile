@@ -21,7 +21,7 @@
 STLINK=~/stlink.git
 
 # Binaries will be generated with this name (.elf, .bin, .hex, etc)
-TARGETS=tbg_hat.elf tbg_hco.elf tbg_input.elf tbg_hso.elf
+TARGETS=tbg_hat.elf tbg_hco.elf tbg_input.elf tbg_hso.elf tbg_gpio32.elf
 
 # Put your STM32F4 library code directory here
 #STM_COMMON=../STM32F4-Discovery_FW_V1.1.0
@@ -88,6 +88,8 @@ tbg_hco.elf: tbg_hco_main.o tbg_node.o $(COMMON_DEPS)
 tbg_input.elf: tbg_input_main.o tbg_node.o $(COMMON_DEPS)
 
 tbg_hso.elf: tbg_hso_main.o tbg_node.o $(COMMON_DEPS)
+
+tbg_gpio32.elf: tbg_gpio32_main.o tbg_node.o $(COMMON_DEPS)
 
 
 .PHONEY: version.c # Ensure this always gets re-made. There could be a better way?
