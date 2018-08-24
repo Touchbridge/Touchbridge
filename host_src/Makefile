@@ -50,7 +50,7 @@ tbg_server: tbg_server.o rpi_io.o rpi_int.o tbg_rpi.o tbg_util.o netbuf.o netcon
 
 tbg_client: tbg_client.o tbg_util.o tbg_api.o netbuf.o netcon.o
 
-netbuf_srv: netbuf_srv.o netbuf.o server_socket.o netcon.o
+netbuf_srv: netbuf_srv.o netbuf.o netcon.o
 
 netbuf_cli: netbuf_cli.o netbuf.o netcon.o
 
